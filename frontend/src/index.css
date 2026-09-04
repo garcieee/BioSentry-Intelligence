@@ -1,0 +1,108 @@
+/* ============================================================
+   BioSentry global tokens and resets
+   Design language: no border-radius, Inter + Source Serif,
+   near-white ground. See docs/design.md.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600&family=Inter:wght@400;500&display=swap');
+
+/* ---- Reset ---- */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ---- Design tokens ---- */
+
+:root {
+  /* Palette */
+  --ink:        #1a1a1a;
+  --ground:     #f8f7f5;
+  --surface:    #ffffff;
+  --border:     #d4d2cd;
+  --label:      #6b6965;
+  --accent:     #2c5ea0;
+  --button:     #1a1a1a;
+  --button-ink: #ffffff;
+
+  /* Spacing scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 16px;
+  --sp-4: 24px;
+  --sp-5: 32px;
+  --sp-6: 48px;
+  --sp-8: 64px;
+
+  /* Layout widths */
+  --content-max: 640px;
+  --ward-max: 960px;
+  --page-max: 1200px;
+
+  /* Typography */
+  --font-serif: "Source Serif 4", Georgia, serif;
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+/* ---- Base styles ---- */
+
+body {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--ground);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* ---- Provenance cues (I2) ---- */
+
+.nurse-entered {
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.missing {
+  color: var(--label);
+}
+
+.prov-tag {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  color: var(--label);
+  vertical-align: super;
+  margin-left: 1px;
+}
+
+.unit {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--label);
+}
+
+/* ---- Responsive ---- */
+
+@media (max-width: 768px) {
+  :root {
+    --page-max: 100%;
+    --ward-max: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --sp-4: 16px;
+    --sp-5: 24px;
+    --sp-6: 32px;
+    --sp-8: 48px;
+  }
+}

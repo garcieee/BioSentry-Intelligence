@@ -1,0 +1,320 @@
+/* ============================================================
+   Sign-in page -- single centered column, phase-by-phase
+   ============================================================ */
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Hero ---- */
+
+.hero {
+  text-align: center;
+  padding: var(--sp-6) var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.eyebrow {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--label);
+  margin-bottom: var(--sp-2);
+}
+
+.heading {
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.2;
+  margin-bottom: 0;
+}
+
+/* ---- Content (centered single column) ---- */
+
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  max-width: 420px;
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--sp-5) var(--sp-4);
+}
+
+.backLink {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--label);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: var(--sp-4);
+  align-self: flex-start;
+}
+
+.backLink:hover {
+  color: var(--ink);
+}
+
+.sectionLabel {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--label);
+  margin-bottom: var(--sp-3);
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* ---- Role cards (department selection) ---- */
+
+.roleCard {
+  cursor: pointer;
+  text-align: left;
+  border: none;
+  width: 100%;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  transition: background 0.1s;
+}
+
+.roleCard:hover {
+  background: var(--ground);
+}
+
+.roleTitle {
+  font-weight: 600;
+  font-size: 17px;
+}
+
+.roleDesc {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--label);
+  line-height: 1.4;
+}
+
+/* ---- Profile cards ---- */
+
+.profileCard {
+  cursor: pointer;
+  text-align: left;
+  border: none;
+  width: 100%;
+  font-family: inherit;
+  transition: background 0.1s;
+}
+
+.profileCard:hover {
+  background: var(--ground);
+}
+
+.profileHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.profileInitial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: var(--ink);
+  color: var(--button-ink);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.profileName {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.profileRole {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--label);
+  margin-top: 2px;
+}
+
+.profileMeta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--sp-2);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--label);
+}
+
+/* ---- Authentication form ---- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+}
+
+.selectedInfo {
+  margin-bottom: var(--sp-4);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.selectedName {
+  display: block;
+  font-weight: 600;
+  font-size: 18px;
+}
+
+.selectedDetail {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--label);
+  margin-top: var(--sp-1);
+}
+
+.field {
+  margin-bottom: var(--sp-4);
+}
+
+.label {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--ink);
+  margin-bottom: var(--sp-1);
+}
+
+.input {
+  width: 100%;
+  padding: 10px var(--sp-3);
+  font-family: var(--font-serif);
+  font-size: 16px;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+.btn {
+  width: 100%;
+  padding: 14px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 15px;
+  color: var(--button-ink);
+  background: var(--button);
+  border: 1px solid var(--ink);
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+
+.btn:hover {
+  opacity: 0.9;
+}
+
+.authNote {
+  margin-top: var(--sp-3);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--label);
+  line-height: 1.5;
+}
+
+/* ---- Destination cards ---- */
+
+.destCard {
+  cursor: pointer;
+  text-align: left;
+  border: none;
+  width: 100%;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  transition: background 0.1s;
+}
+
+.destCard:hover {
+  background: var(--ground);
+}
+
+.destTitle {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.destDesc {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--label);
+  line-height: 1.4;
+}
+
+/* ---- Footer ---- */
+
+.footer {
+  border-top: 1px solid var(--border);
+  padding: var(--sp-4);
+}
+
+.footerGrid {
+  max-width: 420px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: center;
+}
+
+.footerItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.footerLabel {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+/* ---- Responsive: phone ---- */
+
+@media (max-width: 480px) {
+  .hero {
+    padding: var(--sp-4) var(--sp-3) var(--sp-4);
+  }
+
+  .content {
+    padding: var(--sp-4) var(--sp-3);
+  }
+
+  .footer {
+    padding: var(--sp-3);
+  }
+
+  .profileInitial {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+}

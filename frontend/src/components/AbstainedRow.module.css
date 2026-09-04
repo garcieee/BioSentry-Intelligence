@@ -1,0 +1,98 @@
+/* ============================================================
+   Abstained row -- NOT RANKED patients (I4)
+   ============================================================ */
+
+.row {
+  display: grid;
+  grid-template-columns: 112px 1fr 1fr;
+  gap: 0;
+  align-items: start;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: var(--sp-3) 0;
+}
+
+.tagCol {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.tag {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--label);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+}
+
+.infoCol {
+  padding: 0 var(--sp-3);
+}
+
+.nameRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.name {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.detail {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--label);
+}
+
+.context {
+  font-size: 14px;
+  margin-top: 2px;
+  color: var(--ink);
+}
+
+.reasonCol {
+  padding: 0 var(--sp-3);
+  border-left: 1px solid var(--border);
+}
+
+.reason {
+  font-size: 14px;
+}
+
+.instruction {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--label);
+  margin-top: 2px;
+}
+
+/* ---- Responsive: phone ---- */
+
+@media (max-width: 480px) {
+  .row {
+    grid-template-columns: 1fr;
+    gap: var(--sp-2);
+    padding: var(--sp-3);
+  }
+
+  .tagCol {
+    justify-content: flex-start;
+  }
+
+  .infoCol {
+    padding: 0;
+  }
+
+  .reasonCol {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    padding: var(--sp-2) 0 0;
+  }
+}

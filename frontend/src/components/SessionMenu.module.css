@@ -1,0 +1,100 @@
+/* ============================================================
+   Session menu -- clinician dropdown in status bar
+   ============================================================ */
+
+.wrapper {
+  position: relative;
+}
+
+.trigger {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.trigger:hover {
+  opacity: 0.8;
+}
+
+.caret {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 899;
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 900;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  min-width: 200px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.info {
+  padding: var(--sp-2) var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.role {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.ward {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--label);
+}
+
+.divider {
+  height: 1px;
+  background: var(--border);
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--ink);
+  text-decoration: none;
+  background: none;
+  border: none;
+  padding: var(--sp-2) var(--sp-3);
+  cursor: pointer;
+}
+
+.menuItem:hover {
+  background: var(--ground);
+}
+
+/* ---- Responsive: phone ---- */
+
+@media (max-width: 480px) {
+  .dropdown {
+    right: -8px;
+    min-width: 180px;
+    max-width: calc(100vw - 32px);
+  }
+}

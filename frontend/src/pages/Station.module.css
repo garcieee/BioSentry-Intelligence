@@ -1,0 +1,362 @@
+/* ============================================================
+   Station view -- patient intake and SLM upload
+   ============================================================ */
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Status bar ---- */
+
+.statusBar {
+  background: var(--ink);
+  color: var(--button-ink);
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-4);
+}
+
+.statusInner {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+.statusLeft,
+.statusRight {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.statusLabel {
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.statusValue {
+  opacity: 0.7;
+}
+
+/* ---- Tabs ---- */
+
+.tabBar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 var(--sp-4);
+}
+
+.tab {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--label);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--sp-2) var(--sp-4);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab:hover {
+  color: var(--ink);
+}
+
+.tabActive {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+/* ---- Container ---- */
+
+.container {
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+  padding: var(--sp-5) var(--sp-4);
+  flex: 1;
+}
+
+/* ---- Form ---- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.formTitle {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.formSub {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--label);
+  line-height: 1.5;
+  margin-bottom: var(--sp-2);
+}
+
+.sectionDivider {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--label);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+  margin-top: var(--sp-2);
+}
+
+.fieldRow {
+  display: flex;
+  gap: var(--sp-3);
+}
+
+.fieldRow > .field {
+  flex: 1;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+
+.input,
+.select,
+.textarea {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  padding: var(--sp-2);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 0;
+  width: 100%;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.submitBtn {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--ink);
+  color: var(--button-ink);
+  border: none;
+  padding: var(--sp-2) var(--sp-4);
+  cursor: pointer;
+  align-self: flex-start;
+  margin-top: var(--sp-2);
+}
+
+.submitBtn:hover {
+  opacity: 0.85;
+}
+
+.submitBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ---- Success banner ---- */
+
+.successBanner {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  background: var(--ground);
+  border: 1px solid var(--border);
+  padding: var(--sp-2) var(--sp-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.dismissBtn {
+  font-size: 16px;
+  color: var(--label);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.dismissBtn:hover {
+  color: var(--ink);
+}
+
+/* ---- SLM upload ---- */
+
+.syntheticBanner {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--label);
+  background: var(--ground);
+  border: 1px solid var(--border);
+  padding: var(--sp-2) var(--sp-3);
+}
+
+.filePreview {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+}
+
+.fileName {
+  font-weight: 500;
+}
+
+.fileSize {
+  color: var(--label);
+  font-size: 12px;
+}
+
+.extractionGrid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.extractionRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 48px;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.extractionLabel {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.confidence {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--label);
+  text-align: right;
+}
+
+.reviewActions {
+  display: flex;
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
+}
+
+.cancelBtn {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: none;
+  color: var(--label);
+  border: 1px solid var(--border);
+  padding: var(--sp-2) var(--sp-4);
+  cursor: pointer;
+}
+
+.cancelBtn:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+/* ---- Responsive: tablet ---- */
+
+@media (max-width: 768px) {
+  .extractionRow {
+    grid-template-columns: 1fr 1fr 48px;
+  }
+}
+
+/* ---- Responsive: phone ---- */
+
+@media (max-width: 480px) {
+  .fieldRow {
+    flex-direction: column;
+    gap: var(--sp-3);
+  }
+
+  .container {
+    padding: var(--sp-3) var(--sp-3);
+  }
+
+  .statusBar {
+    padding: 0 var(--sp-3);
+  }
+
+  .tabBar {
+    padding: 0 var(--sp-3);
+  }
+
+  .tab {
+    padding: var(--sp-2) var(--sp-3);
+  }
+
+  .extractionRow {
+    grid-template-columns: 1fr auto;
+    gap: var(--sp-1);
+  }
+
+  .extractionLabel {
+    grid-column: 1 / -1;
+  }
+
+  .reviewActions {
+    flex-direction: column;
+  }
+
+  .submitBtn {
+    align-self: stretch;
+    text-align: center;
+  }
+}

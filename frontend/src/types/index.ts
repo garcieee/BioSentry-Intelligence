@@ -120,9 +120,35 @@ export interface TierStatus {
 
 export interface TierBData {
   readonly arrhythmia_burden: number | null;
-  readonly respiratory_trajectory: string | null;
+  // Per-patient rolling baseline respiratory rate (breaths/min), from the same
+  // baselining path as the other Tier B axes. null = not yet established
+  // (insufficient wear time); the UI then falls back to a population midpoint
+  // and marks the row "baseline pending".
+  readonly respiratory_rate_baseline: number | null;
   readonly perfusion_index: number | null;
   readonly substrate_risk: string | null;
+}
+
+// --- Tier C: outcome model ---
+
+export interface TierCAttribution {
+  readonly feature: string;
+  // Signed contribution to the current score (SHAP or equivalent).
+  // Positive = risk-increasing, negative = protective.
+  readonly contribution: number;
+}
+
+export interface TierCData {
+  // Isotonic-calibrated deterioration probability (0..1). Never the raw model score.
+  readonly risk_probability: number;
+  // Pre-registered forecast window. Keep in sync with the scoring pipeline
+  // and every other place this window is referenced.
+  readonly forecast_window: string;
+  // Age of the model's own last inference, in seconds. This is the model's
+  // clock, NOT the vitals feed's last_update_s -- the model re-scores on its
+  // own cadence (~5-15 min) and must not read as live as the device vitals.
+  readonly scored_seconds_ago: number;
+  readonly attributions: readonly TierCAttribution[];
 }
 
 // --- Patient rows ---
@@ -145,6 +171,7 @@ export interface ScoreRow {
   readonly sort_tier: Tier;
   readonly tier_status: TierStatus[];
   readonly tier_b: TierBData | null;
+  readonly tier_c: TierCData | null;
   readonly synthetic: boolean;
   readonly signal_quality: number;
   readonly last_update_s: number;
@@ -180,7 +207,7 @@ export interface PatientDetail extends ScoreRow {
   readonly tier_breakdown: {
     readonly tier_a: { readonly score: number; readonly label: string } | null;
     readonly tier_b: TierBData | null;
-    readonly tier_c: { readonly label: string } | null;
+    readonly tier_c: TierCData | null;
   };
 }
 

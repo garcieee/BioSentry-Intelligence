@@ -14,6 +14,8 @@ import type {
   PatientExtractionResult,
   Provenance,
   ScoreRow,
+  TierCAttribution,
+  TierCData,
   TierStatus,
   VitalHistory,
   Vitals,
@@ -63,7 +65,7 @@ function missing<T>(reason: string, prov: Provenance): Measurement<T> {
 const TIERS: TierStatus[] = [
   { tier: "A", live: true, label: "NEWS2" },
   { tier: "B", live: true, label: "Mechanism axes" },
-  { tier: "C", live: false, label: "not yet implemented" },
+  { tier: "C", live: true, label: "Outcome model" },
 ];
 
 const now = "2026-09-03T07:00:00Z";
@@ -153,6 +155,27 @@ function makeLabs(
   };
 }
 
+// --- Tier C outcome-model fixtures ---
+// Calibrated deterioration probability plus signed feature attributions.
+// scored_seconds_ago is the model's own inference clock -- it re-scores every
+// ~5-15 min, deliberately separate from last_update_s on the vitals feed so the
+// probability never reads as live as the device vitals next to it.
+
+const FORECAST_WINDOW = "next 1–4h";
+
+function makeTierC(
+  risk_probability: number,
+  scored_seconds_ago: number,
+  attributions: TierCAttribution[],
+): TierCData {
+  return {
+    risk_probability,
+    forecast_window: FORECAST_WINDOW,
+    scored_seconds_ago,
+    attributions,
+  };
+}
+
 // --- The twelve patients ---
 
 const ranked: ScoreRow[] = [
@@ -172,7 +195,15 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(1, { bnp: 1840, sodium: 133, potassium: 3.8, creatinine: 1.4, bun: 28, hemoglobin: 118, wbc: 11.2, platelet_count: 198000, sgpt: 42, blood_glucose: 126 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.12, respiratory_trajectory: "worsening", perfusion_index: 0.3, substrate_risk: "elevated K+ clearance declining" },
+    tier_b: { arrhythmia_burden: 0.12, respiratory_rate_baseline: 16, perfusion_index: 0.3, substrate_risk: "K+ within range, renal clearance declining" },
+    tier_c: makeTierC(0.23, 420, [
+      { feature: "Respiratory rate vs baseline", contribution: 0.31 },
+      { feature: "BNP (last lab)", contribution: 0.18 },
+      { feature: "Pulse pressure narrowing", contribution: 0.14 },
+      { feature: "SpO₂ trend slope (3h)", contribution: 0.09 },
+      { feature: "Heart rate trend slope (3h)", contribution: 0.05 },
+      { feature: "Diuretic response (6h)", contribution: -0.06 },
+    ]),
     synthetic: true, signal_quality: 94, last_update_s: 4,
   },
   {
@@ -191,7 +222,15 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(3, { troponin: 0.42, ck_mb: 38, sodium: 139, potassium: 4.1, creatinine: 1.0, bun: 16, hemoglobin: 148, wbc: 8.4, platelet_count: 220000, inr: 1.0, blood_glucose: 98 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.04, respiratory_trajectory: "stable", perfusion_index: 0.6, substrate_risk: "troponin trend pending" },
+    tier_b: { arrhythmia_burden: 0.04, respiratory_rate_baseline: 18, perfusion_index: 0.6, substrate_risk: "troponin trend pending" },
+    tier_c: makeTierC(0.12, 300, [
+      { feature: "Troponin (last lab)", contribution: 0.16 },
+      { feature: "Beta-blocker on board", contribution: -0.14 },
+      { feature: "Age", contribution: 0.05 },
+      { feature: "Heart rate variability (SDNN)", contribution: 0.04 },
+      { feature: "Respiratory rate vs baseline", contribution: 0.03 },
+      { feature: "SpO₂ trend slope (3h)", contribution: -0.02 },
+    ]),
     synthetic: true, signal_quality: 98, last_update_s: 2,
   },
   {
@@ -210,7 +249,14 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(4, { sodium: 140, potassium: 4.3, creatinine: 0.9, bun: 14, hemoglobin: 102, hematocrit: 0.31, wbc: 9.8, platelet_count: 245000, pt: 12.1, inr: 1.1, blood_glucose: 110 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.01, respiratory_trajectory: "improving", perfusion_index: 0.7, substrate_risk: "normal" },
+    tier_b: { arrhythmia_burden: 0.01, respiratory_rate_baseline: 17, perfusion_index: 0.7, substrate_risk: "normal" },
+    tier_c: makeTierC(0.08, 540, [
+      { feature: "Post-op day 1", contribution: 0.11 },
+      { feature: "Hemoglobin (last lab)", contribution: 0.07 },
+      { feature: "Temperature trend (6h)", contribution: -0.05 },
+      { feature: "Heart rate trend slope (3h)", contribution: -0.04 },
+      { feature: "Respiratory rate vs baseline", contribution: 0.02 },
+    ]),
     synthetic: true, signal_quality: 96, last_update_s: 8,
   },
   {
@@ -229,7 +275,15 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(9, { bnp: 920, sodium: 131, potassium: 4.6, creatinine: 1.8, bun: 32, hemoglobin: 110, wbc: 7.6, platelet_count: 175000, sgpt: 38, blood_glucose: 118 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.08, respiratory_trajectory: "flat", perfusion_index: 0.45, substrate_risk: "creatinine rising, labs stale" },
+    tier_b: { arrhythmia_burden: 0.08, respiratory_rate_baseline: 18, perfusion_index: 0.45, substrate_risk: "creatinine rising, labs stale" },
+    tier_c: makeTierC(0.14, 660, [
+      { feature: "Creatinine trend", contribution: 0.13 },
+      { feature: "BNP (last lab)", contribution: 0.10 },
+      { feature: "Sodium (last lab)", contribution: 0.08 },
+      { feature: "Perfusion index", contribution: 0.06 },
+      { feature: "Respiratory rate vs baseline", contribution: 0.04 },
+      { feature: "Labs stale (>8h)", contribution: 0.03 },
+    ]),
     synthetic: true, signal_quality: 91, last_update_s: 6,
   },
   {
@@ -248,7 +302,14 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(5, { sodium: 138, potassium: 4.0, creatinine: 1.1, bun: 18, hemoglobin: 142, wbc: 6.8, platelet_count: 230000, blood_glucose: 105 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.02, respiratory_trajectory: "stable", perfusion_index: 0.6, substrate_risk: "incomplete workup" },
+    tier_b: { arrhythmia_burden: 0.02, respiratory_rate_baseline: null, perfusion_index: 0.6, substrate_risk: "incomplete workup" },
+    tier_c: makeTierC(0.09, 480, [
+      { feature: "Incomplete workup (no echo)", contribution: 0.08 },
+      { feature: "Blood pressure", contribution: 0.05 },
+      { feature: "Heart rate trend slope (3h)", contribution: 0.04 },
+      { feature: "Respiratory rate vs baseline", contribution: 0.03 },
+      { feature: "Age", contribution: 0.03 },
+    ]),
     synthetic: true, signal_quality: 97, last_update_s: 3,
   },
   {
@@ -267,7 +328,14 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(2, { sodium: 142, potassium: 3.9, creatinine: 0.9, bun: 12, hemoglobin: 132, wbc: 7.2, platelet_count: 260000, sgpt: 28, blood_glucose: 92 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.01, respiratory_trajectory: "stable", perfusion_index: 0.8, substrate_risk: "normal" },
+    tier_b: { arrhythmia_burden: 0.01, respiratory_rate_baseline: 16, perfusion_index: 0.8, substrate_risk: "normal" },
+    tier_c: makeTierC(0.05, 360, [
+      { feature: "Systolic blood pressure", contribution: 0.07 },
+      { feature: "Labetalol response", contribution: -0.06 },
+      { feature: "Heart rate trend slope (3h)", contribution: -0.03 },
+      { feature: "SpO₂ (current)", contribution: -0.02 },
+      { feature: "Age", contribution: 0.02 },
+    ]),
     synthetic: true, signal_quality: 99, last_update_s: 1,
   },
   {
@@ -286,7 +354,14 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(6, { sodium: 140, potassium: 4.2, creatinine: 0.8, bun: 15, hemoglobin: 128, wbc: 6.0, platelet_count: 210000, blood_glucose: 88 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.35, respiratory_trajectory: "stable", perfusion_index: 0.7, substrate_risk: "normal" },
+    tier_b: { arrhythmia_burden: 0.35, respiratory_rate_baseline: 15, perfusion_index: 0.7, substrate_risk: "normal" },
+    tier_c: makeTierC(0.06, 600, [
+      { feature: "Arrhythmia burden", contribution: 0.09 },
+      { feature: "Rate control (6h)", contribution: -0.05 },
+      { feature: "Age", contribution: -0.03 },
+      { feature: "Respiratory rate vs baseline", contribution: -0.02 },
+      { feature: "SpO₂ trend slope (3h)", contribution: -0.02 },
+    ]),
     synthetic: true, signal_quality: 95, last_update_s: 5,
   },
   {
@@ -305,7 +380,14 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(2, { troponin: 0.009, sodium: 141, potassium: 4.0, creatinine: 0.9, bun: 13, hemoglobin: 155, wbc: 7.0, platelet_count: 280000, blood_glucose: 94 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.0, respiratory_trajectory: "stable", perfusion_index: 0.9, substrate_risk: "normal" },
+    tier_b: { arrhythmia_burden: 0.0, respiratory_rate_baseline: null, perfusion_index: 0.9, substrate_risk: "normal" },
+    tier_c: makeTierC(0.03, 300, [
+      { feature: "Troponin negative (last lab)", contribution: -0.06 },
+      { feature: "Age", contribution: -0.05 },
+      { feature: "Heart rate trend slope (3h)", contribution: 0.02 },
+      { feature: "Respiratory rate vs baseline", contribution: 0.01 },
+      { feature: "SpO₂ (current)", contribution: -0.01 },
+    ]),
     synthetic: true, signal_quality: 99, last_update_s: 2,
   },
   {
@@ -324,7 +406,14 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(7, { sodium: 139, potassium: 4.4, creatinine: 1.0, bun: 17, hemoglobin: 126, wbc: 6.5, platelet_count: 195000, blood_glucose: 100 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.01, respiratory_trajectory: "stable", perfusion_index: 0.85, substrate_risk: "normal" },
+    tier_b: { arrhythmia_burden: 0.01, respiratory_rate_baseline: 15, perfusion_index: 0.85, substrate_risk: "normal" },
+    tier_c: makeTierC(0.04, 4200, [
+      { feature: "Age", contribution: 0.05 },
+      { feature: "Chronic angina history", contribution: 0.04 },
+      { feature: "Heart rate trend slope (3h)", contribution: -0.02 },
+      { feature: "Respiratory rate vs baseline", contribution: 0.01 },
+      { feature: "SpO₂ trend slope (3h)", contribution: -0.01 },
+    ]),
     synthetic: true, signal_quality: 97, last_update_s: 7,
   },
   {
@@ -343,7 +432,14 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(3, { sodium: 140, potassium: 4.1, creatinine: 0.8, bun: 11, hemoglobin: 150, wbc: 5.8, platelet_count: 240000, blood_glucose: 90 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.0, respiratory_trajectory: "stable", perfusion_index: 0.9, substrate_risk: "normal" },
+    tier_b: { arrhythmia_burden: 0.0, respiratory_rate_baseline: 14, perfusion_index: 0.9, substrate_risk: "normal" },
+    tier_c: makeTierC(0.02, 5400, [
+      { feature: "Improving trajectory (24h)", contribution: -0.07 },
+      { feature: "Age", contribution: -0.04 },
+      { feature: "Heart rate trend slope (3h)", contribution: -0.03 },
+      { feature: "Temperature trend (6h)", contribution: -0.02 },
+      { feature: "Respiratory rate vs baseline", contribution: -0.01 },
+    ]),
     synthetic: true, signal_quality: 98, last_update_s: 3,
   },
 ];
@@ -587,7 +683,7 @@ export async function getPatient(id: string): Promise<PatientDetail | null> {
     tier_breakdown: {
       tier_a: { score: row.score, label: `NEWS2 = ${row.score}` },
       tier_b: row.tier_b,
-      tier_c: null,
+      tier_c: row.tier_c,
     },
   };
 }

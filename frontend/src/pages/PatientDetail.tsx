@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import type { ClinicalNote, Measurement, PatientDetail as PatientDetailType } from "../types";
+import type { ClinicalNote, Measurement, PatientDetail as PatientDetailType, TierCData } from "../types";
 import { getPatient, getNotes, addNote, deleteNote } from "../api";
 import { MeasurementDisplay } from "../components/MeasurementDisplay";
 import { TrendChart } from "../components/TrendChart";
@@ -23,6 +23,131 @@ function VitalRow<T>({
       <span className={styles.vitalSource}>
         {source ?? measurement.provenance.source}
       </span>
+    </div>
+  );
+}
+
+// Room-air adult RR midpoint (12-20/min). Used only as a stand-in when a
+// patient's personal baseline isn't established yet -- never as a threshold.
+//
+// Deliberately NOT a ROX index (SpO2/FiO2 / RR): its published cutoffs are
+// validated only for supplemental-O2 / HFNC patients, not room-air general-ward
+// patients, so applying it here would be an unvalidated-threshold overclaim.
+//
+// Deferred (needs its own validation before it ships): a "compensation flag"
+// for RR climbing while SpO2 still reads normal. Not partially implemented here.
+const POP_REF_RR = 16;
+const RESP_DEVIATION_BAR_MAX = 100; // percent; the single-direction bar saturates here
+
+function fmtSignedPct(pct: number): string {
+  const rounded = Math.round(pct);
+  const sign = rounded > 0 ? "+" : rounded < 0 ? "−" : "";
+  return `${sign}${Math.abs(rounded)}%`;
+}
+
+function fmtSignedContribution(value: number): string {
+  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  return `${sign}${Math.abs(value).toFixed(2)}`;
+}
+
+// Reads the outcome model's own inference clock, not the vitals feed's.
+function fmtScoredAgo(seconds: number): string {
+  if (seconds < 90) return "just now";
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
+  const hours = Math.round(seconds / 3600);
+  return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+}
+
+// Tier B respiratory axis: deviation of current RR from the patient's personal
+// rolling baseline, styled identically to the Arrhythmia burden row.
+function RespiratoryRow({
+  baseline: personalBaseline,
+  current,
+}: {
+  baseline: number | null;
+  current: Measurement<number>;
+}) {
+  const currentRR = current.data.present ? current.data.value : null;
+  const baselinePending = personalBaseline === null;
+  const baseline = personalBaseline ?? POP_REF_RR;
+  const pct =
+    currentRR !== null ? ((currentRR - baseline) / baseline) * 100 : null;
+  const barWidth =
+    pct !== null
+      ? (Math.min(Math.abs(pct), RESP_DEVIATION_BAR_MAX) / RESP_DEVIATION_BAR_MAX) * 100
+      : 0;
+
+  return (
+    <div className={`${styles.axisItem} ${styles.axisItemStacked}`}>
+      <span className={styles.axisLabel}>Respiratory rate</span>
+      <div className={styles.axisBar}>
+        <div className={styles.axisBarFill} style={{ width: `${barWidth}%` }} />
+      </div>
+      <span
+        className={`${styles.axisVal} ${baselinePending ? styles.axisValMuted : ""}`}
+      >
+        {pct !== null ? fmtSignedPct(pct) : "--"}
+      </span>
+      <span className={styles.axisSub}>
+        {currentRR === null
+          ? "respiratory rate not available"
+          : baselinePending
+            ? "baseline pending · vs population midpoint"
+            : "vs personal baseline"}
+      </span>
+    </div>
+  );
+}
+
+// Tier C: calibrated outcome-model probability, its own freshness, and the
+// signed feature attributions that make the score inspectable.
+function TierCSection({ data }: { data: TierCData }) {
+  const pct = Math.round(data.risk_probability * 100);
+  const ranked = [...data.attributions]
+    .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution))
+    .slice(0, 6);
+  // Relative scaling per patient: the widest bar is the largest |contribution|
+  // actually shown in this render, not a fixed global scale.
+  const maxAbs = Math.max(...ranked.map((a) => Math.abs(a.contribution)), 1e-9);
+
+  return (
+    <div className={styles.tierC}>
+      <div className={styles.riskHeadline}>
+        <span className={styles.riskValue}>{pct}%</span>
+        <span className={styles.riskCaption}>
+          Deterioration risk &middot; {data.forecast_window}
+        </span>
+      </div>
+
+      <p className={styles.modelFreshness}>
+        Model last scored {fmtScoredAgo(data.scored_seconds_ago)}
+      </p>
+
+      <div className={styles.attrList}>
+        {ranked.map((a) => {
+          const half = (Math.abs(a.contribution) / maxAbs) * 50; // half-width max
+          const positive = a.contribution > 0;
+          return (
+            <div key={a.feature} className={styles.attrRow}>
+              <span className={styles.attrLabel}>{a.feature}</span>
+              <div className={styles.attrBar}>
+                <span className={styles.attrZero} />
+                <span
+                  className={positive ? styles.attrBarPos : styles.attrBarNeg}
+                  style={{ width: `${half}%` }}
+                />
+              </div>
+              <span
+                className={`${styles.attrVal} ${positive ? "" : styles.attrValNeg}`}
+              >
+                {fmtSignedContribution(a.contribution)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className={styles.tierCFooter}>Ranking signal only &mdash; not a diagnosis</p>
     </div>
   );
 }
@@ -304,12 +429,10 @@ export function PatientDetail() {
                       : "--"}
                   </span>
                 </div>
-                <div className={styles.axisItem}>
-                  <span className={styles.axisLabel}>Respiratory</span>
-                  <span className={styles.axisText}>
-                    {patient.tier_b.respiratory_trajectory ?? "--"}
-                  </span>
-                </div>
+                <RespiratoryRow
+                  baseline={patient.tier_b.respiratory_rate_baseline}
+                  current={patient.vitals.respiratory_rate}
+                />
                 <div className={styles.axisItem}>
                   <span className={styles.axisLabel}>Perfusion index</span>
                   <div className={styles.axisBar}>
@@ -335,7 +458,11 @@ export function PatientDetail() {
           </CollapsiblePanel>
 
           <CollapsiblePanel title="Tier C -- Outcome model" defaultOpen={false}>
-            <p className={styles.pending}>not yet implemented</p>
+            {patient.tier_c ? (
+              <TierCSection data={patient.tier_c} />
+            ) : (
+              <p className={styles.pending}>not yet implemented</p>
+            )}
           </CollapsiblePanel>
         </div>
 

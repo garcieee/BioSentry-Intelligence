@@ -364,10 +364,137 @@
   grid-column: 2 / -1;
 }
 
+/* Respiratory axis: bar row plus a muted "vs baseline" line underneath */
+.axisItemStacked {
+  row-gap: 4px;
+}
+
+.axisValMuted {
+  color: var(--label);
+  font-weight: 400;
+}
+
+.axisSub {
+  grid-column: 1 / -1;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--label);
+}
+
 .pending {
   font-family: var(--font-sans);
   font-size: 13px;
   color: var(--label);
+}
+
+/* ---- Tier C outcome model ---- */
+
+.tierC {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.riskHeadline {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+}
+
+.riskValue {
+  font-size: 36px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.riskCaption {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--label);
+}
+
+.modelFreshness {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--label);
+  margin-top: calc(-1 * var(--sp-2));
+}
+
+.attrList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-3);
+}
+
+.attrRow {
+  display: grid;
+  grid-template-columns: 150px 1fr 48px;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.attrLabel {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--label);
+}
+
+/* Diverging bar: fills grow from a center zero-line -- risk-increasing to the
+   right in ink, protective to the left in muted grey. */
+.attrBar {
+  position: relative;
+  height: 6px;
+  background: var(--border);
+}
+
+.attrZero {
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--ink);
+}
+
+.attrBarPos,
+.attrBarNeg {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  transition: width 0.5s;
+}
+
+.attrBarPos {
+  left: 50%;
+  background: var(--ink);
+}
+
+.attrBarNeg {
+  right: 50%;
+  background: var(--label);
+  opacity: 0.5;
+}
+
+.attrVal {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: right;
+}
+
+.attrValNeg {
+  color: var(--label);
+  font-weight: 400;
+}
+
+.tierCFooter {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--label);
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-2);
 }
 
 /* ---- Charts (stacked vertically to avoid overflow) ---- */
@@ -586,6 +713,10 @@
   .axisItem {
     grid-template-columns: 100px 1fr auto;
   }
+
+  .attrRow {
+    grid-template-columns: 110px 1fr 44px;
+  }
 }
 
 /* ---- Responsive: phone ---- */
@@ -613,6 +744,15 @@
   }
 
   .axisBar {
+    grid-column: 1 / -1;
+  }
+
+  .attrRow {
+    grid-template-columns: 1fr 44px;
+    gap: var(--sp-2);
+  }
+
+  .attrBar {
     grid-column: 1 / -1;
   }
 

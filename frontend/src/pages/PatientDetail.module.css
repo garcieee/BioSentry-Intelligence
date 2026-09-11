@@ -1,5 +1,5 @@
 /* ============================================================
-   Patient detail -- two-column layout with vitals, axes, notes
+   Patient detail -- two-column layout with vitals, findings, notes
    ============================================================ */
 
 .page {
@@ -110,6 +110,44 @@
   font-weight: 600;
   font-size: 20px;
   line-height: 1;
+}
+
+/* ---- Escalation reasons ---- */
+
+.reasonBlock {
+  background: var(--surface);
+  padding: var(--sp-2) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 200px;
+}
+
+.reasonList {
+  display: flex;
+  gap: var(--sp-1);
+  flex-wrap: wrap;
+}
+
+.reasonTag {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+}
+
+.reasonPathway {
+  font-weight: 400;
+  color: var(--label);
+}
+
+.reasonNone {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--label);
 }
 
 /* ---- Drawer toggle buttons ---- */
@@ -230,38 +268,11 @@
   flex-direction: column;
 }
 
-/* ---- Panels ---- */
+/* ---- Panels (always open — no collapsing) ---- */
 
 .panel {
   padding: var(--sp-4) var(--sp-5);
   border-bottom: 1px solid var(--border);
-}
-
-.panelToggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  text-align: left;
-}
-
-.panelToggle:hover .toggleIcon {
-  opacity: 1;
-}
-
-.toggleIcon {
-  font-size: 10px;
-  color: var(--label);
-  opacity: 0.5;
-  transition: opacity 0.15s;
-}
-
-.panelBody {
-  margin-top: var(--sp-3);
 }
 
 .panelEyebrow {
@@ -314,71 +325,81 @@
   color: var(--label);
 }
 
-/* ---- Tier B axes ---- */
+/* ---- Tier B findings list ---- */
 
-.axisGrid {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
+.findingsGroup {
+  margin-bottom: var(--sp-2);
 }
 
-.axisItem {
+.findingsGroup:last-child {
+  margin-bottom: 0;
+}
+
+.findingsGroupLabel {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--label);
+  padding: var(--sp-2) 0 var(--sp-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.findingRow {
   display: grid;
-  grid-template-columns: 130px 1fr auto;
-  align-items: center;
+  grid-template-columns: 130px 1fr;
+  align-items: baseline;
   gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
 }
 
-.axisLabel {
+.findingRow:last-child {
+  border-bottom: none;
+}
+
+.findingSignificant .findingValue {
+  font-weight: 600;
+}
+
+.findingLabel {
   font-family: var(--font-sans);
   font-size: 12px;
   color: var(--label);
 }
 
-.axisBar {
-  height: 6px;
-  background: var(--border);
-  position: relative;
-  min-width: 60px;
+.findingValue {
+  font-size: 14px;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
 }
 
-.axisBarFill {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  background: var(--ink);
-  transition: width 0.5s;
-}
-
-.axisVal {
-  font-family: var(--font-sans);
+.findingDirection {
   font-size: 12px;
-  font-weight: 500;
-  min-width: 40px;
-  text-align: right;
-}
-
-.axisText {
-  font-size: 13px;
-  grid-column: 2 / -1;
-}
-
-/* Respiratory axis: bar row plus a muted "vs baseline" line underneath */
-.axisItemStacked {
-  row-gap: 4px;
-}
-
-.axisValMuted {
   color: var(--label);
-  font-weight: 400;
 }
 
-.axisSub {
+.findingSource {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--label);
+  border: 1px solid var(--border);
+  padding: 0 3px;
+  margin-left: auto;
+}
+
+.findingDetail {
   grid-column: 1 / -1;
   font-family: var(--font-sans);
   font-size: 11px;
   color: var(--label);
+  margin-top: -2px;
 }
 
 .pending {
@@ -523,7 +544,7 @@
 
 .vitalRow {
   display: grid;
-  grid-template-columns: 140px 1fr auto;
+  grid-template-columns: 140px 1fr;
   align-items: baseline;
   gap: var(--sp-3);
   padding: var(--sp-2) 0;
@@ -543,16 +564,6 @@
 
 .vitalValue {
   font-size: 15px;
-}
-
-.vitalSource {
-  font-family: var(--font-sans);
-  font-size: 10px;
-  color: var(--label);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  border: 1px solid var(--border);
-  padding: 1px 6px;
 }
 
 /* ---- Clinical notes ---- */
@@ -710,8 +721,8 @@
     flex-wrap: wrap;
   }
 
-  .axisItem {
-    grid-template-columns: 100px 1fr auto;
+  .findingRow {
+    grid-template-columns: 100px 1fr;
   }
 
   .attrRow {
@@ -738,13 +749,9 @@
     font-size: 28px;
   }
 
-  .axisItem {
-    grid-template-columns: 1fr auto;
-    gap: var(--sp-2);
-  }
-
-  .axisBar {
-    grid-column: 1 / -1;
+  .findingRow {
+    grid-template-columns: 1fr;
+    gap: var(--sp-1);
   }
 
   .attrRow {
@@ -757,7 +764,7 @@
   }
 
   .vitalRow {
-    grid-template-columns: 100px 1fr auto;
+    grid-template-columns: 100px 1fr;
     gap: var(--sp-2);
   }
 

@@ -118,15 +118,21 @@ export interface TierStatus {
   readonly label: string;
 }
 
+// Tier B finding: a named clinical observation with its own units.
+// These are NOT comparable on a shared scale -- each carries its own
+// measurement unit, direction, and significance threshold.
+export interface TierBFinding {
+  readonly id: string;
+  readonly label: string;
+  readonly value: string;              // pre-formatted with units, e.g. "12%", "KDIGO 2"
+  readonly direction: "rising" | "falling" | "stable" | "new" | null;
+  readonly source: ProvenanceSource;
+  readonly significant: boolean;       // exceeds the finding's own threshold
+  readonly detail?: string;            // e.g. "vs personal baseline", "corroborates low perfusion"
+}
+
 export interface TierBData {
-  readonly arrhythmia_burden: number | null;
-  // Per-patient rolling baseline respiratory rate (breaths/min), from the same
-  // baselining path as the other Tier B axes. null = not yet established
-  // (insufficient wear time); the UI then falls back to a population midpoint
-  // and marks the row "baseline pending".
-  readonly respiratory_rate_baseline: number | null;
-  readonly perfusion_index: number | null;
-  readonly substrate_risk: string | null;
+  readonly findings: readonly TierBFinding[];
 }
 
 // --- Tier C: outcome model ---
@@ -151,6 +157,22 @@ export interface TierCData {
   readonly attributions: readonly TierCAttribution[];
 }
 
+// --- Escalation arbiter ---
+// The arbiter is the only component that changes displayed priority.
+// Each reason names the rule that fired and carries a human-readable explanation.
+
+export type EscalationRule =
+  | "tier_a_threshold"   // NEWS2 crossed its standard band
+  | "tier_c_raise"       // Outcome model raised patient above Tier A position
+  | "tier_b_finding"     // A mechanism finding raised the patient
+  | "missing_input";     // Required input missing → NOT RANKED
+
+export interface EscalationReason {
+  readonly rule: EscalationRule;
+  readonly text: string;           // human-readable, e.g. "NEWS2 ≥ 7"
+  readonly pathway?: string;       // for tier_b_finding: which mechanism
+}
+
 // --- Patient rows ---
 
 export interface ScoreRow {
@@ -172,6 +194,7 @@ export interface ScoreRow {
   readonly tier_status: TierStatus[];
   readonly tier_b: TierBData | null;
   readonly tier_c: TierCData | null;
+  readonly escalation_reasons: readonly EscalationReason[];
   readonly synthetic: boolean;
   readonly signal_quality: number;
   readonly last_update_s: number;

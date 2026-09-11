@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import type { ClinicalNote, Measurement, PatientDetail as PatientDetailType, TierCData } from "../types";
+import type { ClinicalNote, Measurement, PatientDetail as PatientDetailType, TierBFinding, TierCData } from "../types";
 import { getPatient, getNotes, addNote, deleteNote } from "../api";
 import { MeasurementDisplay } from "../components/MeasurementDisplay";
 import { TrendChart } from "../components/TrendChart";
@@ -10,9 +10,9 @@ import styles from "./PatientDetail.module.css";
 // --- Shared sub-components ---
 
 function VitalRow<T>({
-  label, measurement, unit, source,
+  label, measurement, unit,
 }: {
-  label: string; measurement: Measurement<T>; unit?: string; source?: string;
+  label: string; measurement: Measurement<T>; unit?: string;
 }) {
   return (
     <div className={styles.vitalRow}>
@@ -20,33 +20,45 @@ function VitalRow<T>({
       <span className={styles.vitalValue}>
         <MeasurementDisplay measurement={measurement} unit={unit} />
       </span>
-      <span className={styles.vitalSource}>
-        {source ?? measurement.provenance.source}
-      </span>
     </div>
   );
 }
 
-// Room-air adult RR midpoint (12-20/min). Used only as a stand-in when a
-// patient's personal baseline isn't established yet -- never as a threshold.
-//
-// Deliberately NOT a ROX index (SpO2/FiO2 / RR): its published cutoffs are
-// validated only for supplemental-O2 / HFNC patients, not room-air general-ward
-// patients, so applying it here would be an unvalidated-threshold overclaim.
-//
-// Deferred (needs its own validation before it ships): a "compensation flag"
-// for RR climbing while SpO2 still reads normal. Not partially implemented here.
-const POP_REF_RR = 16;
-const RESP_DEVIATION_BAR_MAX = 100; // percent; the single-direction bar saturates here
+const DIRECTION_CHAR: Record<string, string> = {
+  rising: "\u2191",
+  falling: "\u2193",
+  stable: "\u2192",
+  new: "\u25C6",
+};
 
-function fmtSignedPct(pct: number): string {
-  const rounded = Math.round(pct);
-  const sign = rounded > 0 ? "+" : rounded < 0 ? "−" : "";
-  return `${sign}${Math.abs(rounded)}%`;
+// Tier B: a single mechanism finding row with its own value and units.
+// Detail is always shown (density over minimalism).
+function FindingRow({ finding }: { finding: TierBFinding }) {
+  return (
+    <div className={`${styles.findingRow} ${finding.significant ? styles.findingSignificant : ""}`}>
+      <span className={styles.findingLabel}>{finding.label}</span>
+      <span className={styles.findingValue}>
+        {finding.value}
+        {finding.direction && (
+          <span className={styles.findingDirection}>
+            {" "}{DIRECTION_CHAR[finding.direction] ?? ""}
+          </span>
+        )}
+        <span className={styles.findingSource}>{finding.source}</span>
+      </span>
+      {finding.detail && (
+        <span className={styles.findingDetail}>{finding.detail}</span>
+      )}
+    </div>
+  );
 }
 
+const DEVICE_AXES = new Set(["af", "rr", "pi"]);
+const LAB_SUBSTRATE = new Set(["trop", "k-mg", "kdigo", "lactate"]);
+const SECONDARY_AXES = new Set(["hrv"]);
+
 function fmtSignedContribution(value: number): string {
-  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  const sign = value > 0 ? "+" : value < 0 ? "\u2212" : "";
   return `${sign}${Math.abs(value).toFixed(2)}`;
 }
 
@@ -58,47 +70,6 @@ function fmtScoredAgo(seconds: number): string {
   return `${hours} hour${hours === 1 ? "" : "s"} ago`;
 }
 
-// Tier B respiratory axis: deviation of current RR from the patient's personal
-// rolling baseline, styled identically to the Arrhythmia burden row.
-function RespiratoryRow({
-  baseline: personalBaseline,
-  current,
-}: {
-  baseline: number | null;
-  current: Measurement<number>;
-}) {
-  const currentRR = current.data.present ? current.data.value : null;
-  const baselinePending = personalBaseline === null;
-  const baseline = personalBaseline ?? POP_REF_RR;
-  const pct =
-    currentRR !== null ? ((currentRR - baseline) / baseline) * 100 : null;
-  const barWidth =
-    pct !== null
-      ? (Math.min(Math.abs(pct), RESP_DEVIATION_BAR_MAX) / RESP_DEVIATION_BAR_MAX) * 100
-      : 0;
-
-  return (
-    <div className={`${styles.axisItem} ${styles.axisItemStacked}`}>
-      <span className={styles.axisLabel}>Respiratory rate</span>
-      <div className={styles.axisBar}>
-        <div className={styles.axisBarFill} style={{ width: `${barWidth}%` }} />
-      </div>
-      <span
-        className={`${styles.axisVal} ${baselinePending ? styles.axisValMuted : ""}`}
-      >
-        {pct !== null ? fmtSignedPct(pct) : "--"}
-      </span>
-      <span className={styles.axisSub}>
-        {currentRR === null
-          ? "respiratory rate not available"
-          : baselinePending
-            ? "baseline pending · vs population midpoint"
-            : "vs personal baseline"}
-      </span>
-    </div>
-  );
-}
-
 // Tier C: calibrated outcome-model probability, its own freshness, and the
 // signed feature attributions that make the score inspectable.
 function TierCSection({ data }: { data: TierCData }) {
@@ -106,8 +77,6 @@ function TierCSection({ data }: { data: TierCData }) {
   const ranked = [...data.attributions]
     .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution))
     .slice(0, 6);
-  // Relative scaling per patient: the widest bar is the largest |contribution|
-  // actually shown in this render, not a fixed global scale.
   const maxAbs = Math.max(...ranked.map((a) => Math.abs(a.contribution)), 1e-9);
 
   return (
@@ -125,7 +94,7 @@ function TierCSection({ data }: { data: TierCData }) {
 
       <div className={styles.attrList}>
         {ranked.map((a) => {
-          const half = (Math.abs(a.contribution) / maxAbs) * 50; // half-width max
+          const half = (Math.abs(a.contribution) / maxAbs) * 50;
           const positive = a.contribution > 0;
           return (
             <div key={a.feature} className={styles.attrRow}>
@@ -148,36 +117,6 @@ function TierCSection({ data }: { data: TierCData }) {
       </div>
 
       <p className={styles.tierCFooter}>Ranking signal only &mdash; not a diagnosis</p>
-    </div>
-  );
-}
-
-function CollapsiblePanel({
-  title,
-  badge,
-  defaultOpen = true,
-  children,
-}: {
-  title: string;
-  badge?: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className={styles.panel}>
-      <button
-        className={styles.panelToggle}
-        onClick={() => setOpen((o) => !o)}
-        type="button"
-      >
-        <span className={styles.panelEyebrow} style={{ marginBottom: 0 }}>
-          {title}
-          {badge && ` \u00b7 ${badge}`}
-        </span>
-        <span className={styles.toggleIcon}>{open ? "\u25B4" : "\u25BE"}</span>
-      </button>
-      {open && <div className={styles.panelBody}>{children}</div>}
     </div>
   );
 }
@@ -238,6 +177,8 @@ export function PatientDetail() {
 
   if (!patient) return null;
 
+  const reasons = patient.escalation_reasons;
+
   return (
     <div className={styles.page}>
       {/* Status strip */}
@@ -257,25 +198,32 @@ export function PatientDetail() {
         </div>
       </div>
 
-      {/* Summary bar with drawer toggles */}
+      {/* Summary bar: NEWS2 + escalation reasons (no rank, no tier badge) */}
       <div className={styles.summaryBar}>
         <div className={styles.summaryRow}>
           <div className={styles.summaryInner}>
-            <div className={styles.summaryBlock}>
-              <span className={styles.summaryLabel}>Rank</span>
-              <span className={styles.summaryBig}>#{patient.rank}</span>
-            </div>
             <div className={styles.summaryBlock}>
               <span className={styles.summaryLabel}>NEWS2</span>
               <span className={styles.summaryBig}>{patient.score}</span>
             </div>
             <div className={styles.summaryBlock}>
-              <span className={styles.summaryLabel}>Tier</span>
-              <span className={styles.summaryBig}>{patient.sort_tier}</span>
-            </div>
-            <div className={styles.summaryBlock}>
               <span className={styles.summaryLabel}>Signal</span>
               <span className={styles.summaryBig}>{patient.signal_quality}%</span>
+            </div>
+            <div className={styles.reasonBlock}>
+              <span className={styles.summaryLabel}>Why this patient is up</span>
+              {reasons.length > 0 ? (
+                <div className={styles.reasonList}>
+                  {reasons.map((r, i) => (
+                    <span key={i} className={styles.reasonTag}>
+                      {r.text}
+                      {r.pathway && <span className={styles.reasonPathway}> ({r.pathway})</span>}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span className={styles.reasonNone}>Sorted on NEWS2 only</span>
+              )}
             </div>
           </div>
           <div className={styles.drawerButtons}>
@@ -388,7 +336,7 @@ export function PatientDetail() {
       )}
 
       <div className={styles.layout}>
-        {/* Left: identity + tiers */}
+        {/* Left: identity + tiers — all panels always open (density over progressive disclosure) */}
         <div className={styles.sidebar}>
           <div className={styles.panel}>
             <p className={styles.panelEyebrow}>Patient</p>
@@ -399,7 +347,8 @@ export function PatientDetail() {
             <p className={styles.admitting}>{patient.admitting_context}</p>
           </div>
 
-          <CollapsiblePanel title="Tier A -- Reference score" defaultOpen>
+          <div className={styles.panel}>
+            <p className={styles.panelEyebrow}>Tier A &mdash; Reference score</p>
             <div className={styles.scoreBlock}>
               <span className={styles.scoreValue}>{patient.score}</span>
               <span className={styles.scoreLabel}>NEWS2</span>
@@ -410,63 +359,61 @@ export function PatientDetail() {
               height={32}
               fill
             />
-          </CollapsiblePanel>
+          </div>
 
-          <CollapsiblePanel title="Tier B -- Mechanism axes" defaultOpen={false}>
+          <div className={styles.panel}>
+            <p className={styles.panelEyebrow}>Tier B &mdash; Mechanism findings</p>
             {patient.tier_b ? (
-              <div className={styles.axisGrid}>
-                <div className={styles.axisItem}>
-                  <span className={styles.axisLabel}>Arrhythmia burden</span>
-                  <div className={styles.axisBar}>
-                    <div
-                      className={styles.axisBarFill}
-                      style={{ width: `${(patient.tier_b.arrhythmia_burden ?? 0) * 100}%` }}
-                    />
-                  </div>
-                  <span className={styles.axisVal}>
-                    {patient.tier_b.arrhythmia_burden !== null
-                      ? `${Math.round(patient.tier_b.arrhythmia_burden * 100)}%`
-                      : "--"}
-                  </span>
-                </div>
-                <RespiratoryRow
-                  baseline={patient.tier_b.respiratory_rate_baseline}
-                  current={patient.vitals.respiratory_rate}
-                />
-                <div className={styles.axisItem}>
-                  <span className={styles.axisLabel}>Perfusion index</span>
-                  <div className={styles.axisBar}>
-                    <div
-                      className={styles.axisBarFill}
-                      style={{ width: `${(patient.tier_b.perfusion_index ?? 0) * 100}%` }}
-                    />
-                  </div>
-                  <span className={styles.axisVal}>
-                    {patient.tier_b.perfusion_index?.toFixed(2) ?? "--"}
-                  </span>
-                </div>
-                <div className={styles.axisItem}>
-                  <span className={styles.axisLabel}>Substrate</span>
-                  <span className={styles.axisText}>
-                    {patient.tier_b.substrate_risk ?? "--"}
-                  </span>
-                </div>
+              <div className={styles.findingsGrid}>
+                {(() => {
+                  const findings = patient.tier_b.findings;
+                  const device = findings.filter((f) => DEVICE_AXES.has(f.id));
+                  const lab = findings.filter((f) => LAB_SUBSTRATE.has(f.id));
+                  const secondary = findings.filter((f) => SECONDARY_AXES.has(f.id));
+                  const other = findings.filter(
+                    (f) => !DEVICE_AXES.has(f.id) && !LAB_SUBSTRATE.has(f.id) && !SECONDARY_AXES.has(f.id),
+                  );
+                  return (
+                    <>
+                      {device.length > 0 && (
+                        <div className={styles.findingsGroup}>
+                          <span className={styles.findingsGroupLabel}>Device axes</span>
+                          {device.map((f) => <FindingRow key={f.id} finding={f} />)}
+                        </div>
+                      )}
+                      {lab.length > 0 && (
+                        <div className={styles.findingsGroup}>
+                          <span className={styles.findingsGroupLabel}>Lab substrate</span>
+                          {lab.map((f) => <FindingRow key={f.id} finding={f} />)}
+                        </div>
+                      )}
+                      {secondary.length > 0 && (
+                        <div className={styles.findingsGroup}>
+                          <span className={styles.findingsGroupLabel}>Secondary</span>
+                          {secondary.map((f) => <FindingRow key={f.id} finding={f} />)}
+                        </div>
+                      )}
+                      {other.length > 0 && other.map((f) => <FindingRow key={f.id} finding={f} />)}
+                    </>
+                  );
+                })()}
               </div>
             ) : (
               <p className={styles.pending}>not yet implemented</p>
             )}
-          </CollapsiblePanel>
+          </div>
 
-          <CollapsiblePanel title="Tier C -- Outcome model" defaultOpen={false}>
+          <div className={styles.panel}>
+            <p className={styles.panelEyebrow}>Tier C &mdash; Outcome model</p>
             {patient.tier_c ? (
               <TierCSection data={patient.tier_c} />
             ) : (
               <p className={styles.pending}>not yet implemented</p>
             )}
-          </CollapsiblePanel>
+          </div>
         </div>
 
-        {/* Right: vitals + labs (always visible, no toggles) */}
+        {/* Right: vitals + labs (always visible) */}
         <div className={styles.main}>
           <div className={styles.panel}>
             <p className={styles.panelEyebrow}>Current vitals</p>
@@ -487,20 +434,23 @@ export function PatientDetail() {
                 ` \u00b7 ${patient.labs.freshness_hours}h since collection`}
             </p>
             <div className={styles.vitalsGrid}>
-              {patient.labs.troponin && <VitalRow label="Troponin" measurement={patient.labs.troponin} unit="ng/mL" source="lab" />}
-              {patient.labs.ck_mb && <VitalRow label="CK-MB" measurement={patient.labs.ck_mb} unit="U/L" source="lab" />}
-              {patient.labs.bnp && <VitalRow label="BNP" measurement={patient.labs.bnp} unit="pg/mL" source="lab" />}
-              {patient.labs.nt_probnp && <VitalRow label="NT-proBNP" measurement={patient.labs.nt_probnp} unit="pg/mL" source="lab" />}
-              {patient.labs.sodium && <VitalRow label="Sodium" measurement={patient.labs.sodium} unit="mEq/L" source="lab" />}
-              {patient.labs.potassium && <VitalRow label="Potassium" measurement={patient.labs.potassium} unit="mEq/L" source="lab" />}
-              {patient.labs.creatinine && <VitalRow label="Creatinine" measurement={patient.labs.creatinine} unit="mg/dL" source="lab" />}
-              {patient.labs.bun && <VitalRow label="BUN" measurement={patient.labs.bun} unit="mg/dL" source="lab" />}
-              {patient.labs.hemoglobin && <VitalRow label="Hemoglobin" measurement={patient.labs.hemoglobin} unit="g/L" source="lab" />}
-              {patient.labs.wbc && <VitalRow label="WBC" measurement={patient.labs.wbc} unit="x10^9/L" source="lab" />}
-              {patient.labs.platelet_count && <VitalRow label="Platelets" measurement={patient.labs.platelet_count} unit="/mm^3" source="lab" />}
-              {patient.labs.sgpt && <VitalRow label="SGPT" measurement={patient.labs.sgpt} unit="U/L" source="lab" />}
-              {patient.labs.blood_glucose && <VitalRow label="Blood glucose" measurement={patient.labs.blood_glucose} unit="mg/dL" source="lab" />}
-              {patient.labs.inr && <VitalRow label="INR" measurement={patient.labs.inr} unit="" source="lab" />}
+              {patient.labs.troponin && <VitalRow label="Troponin" measurement={patient.labs.troponin} unit="ng/mL" />}
+              {patient.labs.ck_mb && <VitalRow label="CK-MB" measurement={patient.labs.ck_mb} unit="U/L" />}
+              {patient.labs.bnp && <VitalRow label="BNP" measurement={patient.labs.bnp} unit="pg/mL" />}
+              {patient.labs.nt_probnp && <VitalRow label="NT-proBNP" measurement={patient.labs.nt_probnp} unit="pg/mL" />}
+              {patient.labs.sodium && <VitalRow label="Sodium" measurement={patient.labs.sodium} unit="mEq/L" />}
+              {patient.labs.potassium && <VitalRow label="Potassium" measurement={patient.labs.potassium} unit="mEq/L" />}
+              {patient.labs.magnesium && <VitalRow label="Magnesium" measurement={patient.labs.magnesium} unit="mg/dL" />}
+              {patient.labs.creatinine && <VitalRow label="Creatinine" measurement={patient.labs.creatinine} unit="mg/dL" />}
+              {patient.labs.bun && <VitalRow label="BUN" measurement={patient.labs.bun} unit="mg/dL" />}
+              {patient.labs.hemoglobin && <VitalRow label="Hemoglobin" measurement={patient.labs.hemoglobin} unit="g/L" />}
+              {patient.labs.wbc && <VitalRow label="WBC" measurement={patient.labs.wbc} unit="x10^9/L" />}
+              {patient.labs.platelet_count && <VitalRow label="Platelets" measurement={patient.labs.platelet_count} unit="/mm^3" />}
+              {patient.labs.lactate && <VitalRow label="Lactate" measurement={patient.labs.lactate} unit="mmol/L" />}
+              {patient.labs.sgpt && <VitalRow label="SGPT" measurement={patient.labs.sgpt} unit="U/L" />}
+              {patient.labs.sgot && <VitalRow label="SGOT" measurement={patient.labs.sgot} unit="U/L" />}
+              {patient.labs.blood_glucose && <VitalRow label="Blood glucose" measurement={patient.labs.blood_glucose} unit="mg/dL" />}
+              {patient.labs.inr && <VitalRow label="INR" measurement={patient.labs.inr} unit="" />}
               {!patient.labs.troponin && !patient.labs.bnp && !patient.labs.potassium &&
                !patient.labs.creatinine && !patient.labs.hemoglobin && (
                 <p className={styles.pending}>No lab values recorded</p>

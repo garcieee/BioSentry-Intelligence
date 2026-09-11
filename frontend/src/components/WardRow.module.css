@@ -138,21 +138,12 @@
   white-space: nowrap;
 }
 
-.tierBRow {
-  display: flex;
-  gap: var(--sp-1);
-  margin-top: var(--sp-1);
-  flex-wrap: wrap;
-}
-
-.axisBadge {
+.reasonLine {
   font-family: var(--font-sans);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  color: var(--ink);
-  border: 1px solid var(--border);
-  padding: 1px 6px;
-  background: var(--ground);
+  font-size: 11px;
+  color: var(--label);
+  margin-top: 2px;
+  font-style: italic;
 }
 
 /* ---- Sparklines column ---- */
@@ -219,16 +210,6 @@
   margin-top: var(--sp-1);
 }
 
-.tierTag {
-  font-family: var(--font-sans);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--label);
-  border: 1px solid var(--border);
-  padding: 1px 6px;
-  align-self: flex-start;
-}
 
 /* ---- Responsive: tablet ---- */
 

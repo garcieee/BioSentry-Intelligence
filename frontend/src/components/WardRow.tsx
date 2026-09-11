@@ -39,37 +39,11 @@ export function WardRow({ row }: Props) {
             <span className={styles.updateTag}>{row.last_update_s}s ago</span>
           </div>
           <div className={styles.context}>{row.admitting_context}</div>
-          {(() => {
-            const tb = row.tier_b;
-            if (!tb) return null;
-            const rr = row.vitals.respiratory_rate;
-            const respDev =
-              tb.respiratory_rate_baseline !== null && rr.data.present
-                ? Math.round(
-                    ((rr.data.value - tb.respiratory_rate_baseline) /
-                      tb.respiratory_rate_baseline) *
-                      100,
-                  )
-                : null;
-            return (
-              <div className={styles.tierBRow}>
-                {tb.arrhythmia_burden !== null && tb.arrhythmia_burden > 0.05 && (
-                  <span className={styles.axisBadge}>AF {Math.round(tb.arrhythmia_burden * 100)}%</span>
-                )}
-                {respDev !== null && Math.abs(respDev) >= 20 && (
-                  <span className={styles.axisBadge}>
-                    Resp {respDev > 0 ? "+" : "−"}{Math.abs(respDev)}%
-                  </span>
-                )}
-                {tb.perfusion_index !== null && tb.perfusion_index < 0.5 && (
-                  <span className={styles.axisBadge}>Perfusion {tb.perfusion_index.toFixed(1)}</span>
-                )}
-                {tb.substrate_risk && tb.substrate_risk !== "normal" && (
-                  <span className={styles.axisBadge}>{tb.substrate_risk}</span>
-                )}
-              </div>
-            );
-          })()}
+          {row.escalation_reasons.length > 0 && (
+            <div className={styles.reasonLine}>
+              {row.escalation_reasons.map((r) => r.text).join(" · ")}
+            </div>
+          )}
         </div>
 
         {/* Sparklines */}
@@ -112,7 +86,6 @@ export function WardRow({ row }: Props) {
               ? `Labs ${row.labs.freshness_hours}h`
               : "No labs"}
           </div>
-          <span className={styles.tierTag}>Tier {row.sort_tier}</span>
         </div>
       </div>
     </Link>

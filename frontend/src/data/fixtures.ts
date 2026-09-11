@@ -6,6 +6,7 @@ import type {
   AbstainedRow,
   AdmitPatientInput,
   ClinicalNote,
+  EscalationReason,
   LabExtractionResult,
   LabPanel,
   Measurement,
@@ -14,6 +15,7 @@ import type {
   PatientExtractionResult,
   Provenance,
   ScoreRow,
+  TierBFinding,
   TierCAttribution,
   TierCData,
   TierStatus,
@@ -195,7 +197,16 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(1, { bnp: 1840, sodium: 133, potassium: 3.8, creatinine: 1.4, bun: 28, hemoglobin: 118, wbc: 11.2, platelet_count: 198000, sgpt: 42, blood_glucose: 126 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.12, respiratory_rate_baseline: 16, perfusion_index: 0.3, substrate_risk: "K+ within range, renal clearance declining" },
+    tier_b: { findings: [
+      { id: "af", label: "Arrhythmia burden", value: "12%", direction: "rising", source: "device", significant: true, detail: "AF episodes over 6h window" },
+      { id: "rr", label: "Respiratory rate", value: "+63% vs baseline", direction: "rising", source: "device", significant: true, detail: "vs personal baseline 16/min" },
+      { id: "pi", label: "Perfusion index", value: "0.30", direction: "falling", source: "device", significant: true, detail: "trend declining over 3h" },
+      { id: "hrv", label: "HRV (SDNN)", value: "28 ms", direction: "falling", source: "device", significant: true, detail: "reduced variability" },
+      { id: "trop", label: "Troponin trend", value: "not measured", direction: null, source: "lab", significant: false },
+      { id: "k-mg", label: "K⁺", value: "3.8 mEq/L", direction: "stable", source: "lab", significant: false, detail: "within range; no arrhythmia substrate" },
+      { id: "kdigo", label: "KDIGO stage", value: "Stage 1", direction: "rising", source: "lab", significant: true, detail: "creatinine 1.4 mg/dL, rising" },
+      { id: "lactate", label: "Lactate", value: "not measured", direction: null, source: "lab", significant: false },
+    ] },
     tier_c: makeTierC(0.23, 420, [
       { feature: "Respiratory rate vs baseline", contribution: 0.31 },
       { feature: "BNP (last lab)", contribution: 0.18 },
@@ -204,6 +215,11 @@ const ranked: ScoreRow[] = [
       { feature: "Heart rate trend slope (3h)", contribution: 0.05 },
       { feature: "Diuretic response (6h)", contribution: -0.06 },
     ]),
+    escalation_reasons: [
+      { rule: "tier_a_threshold", text: "NEWS2 ≥ 7" },
+      { rule: "tier_b_finding", text: "Perfusion index falling", pathway: "perfusion" },
+      { rule: "tier_b_finding", text: "KDIGO stage rising", pathway: "renal" },
+    ],
     synthetic: true, signal_quality: 94, last_update_s: 4,
   },
   {
@@ -222,7 +238,16 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(3, { troponin: 0.42, ck_mb: 38, sodium: 139, potassium: 4.1, creatinine: 1.0, bun: 16, hemoglobin: 148, wbc: 8.4, platelet_count: 220000, inr: 1.0, blood_glucose: 98 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.04, respiratory_rate_baseline: 18, perfusion_index: 0.6, substrate_risk: "troponin trend pending" },
+    tier_b: { findings: [
+      { id: "af", label: "Arrhythmia burden", value: "4%", direction: "stable", source: "device", significant: false },
+      { id: "rr", label: "Respiratory rate", value: "+22% vs baseline", direction: "rising", source: "device", significant: true, detail: "vs personal baseline 18/min" },
+      { id: "pi", label: "Perfusion index", value: "0.60", direction: "stable", source: "device", significant: false },
+      { id: "hrv", label: "HRV (SDNN)", value: "42 ms", direction: "stable", source: "device", significant: false },
+      { id: "trop", label: "Troponin trend", value: "0.42 ng/mL", direction: "new", source: "lab", significant: true, detail: "single draw — repeat pending for trend" },
+      { id: "k-mg", label: "K⁺", value: "4.1 mEq/L", direction: "stable", source: "lab", significant: false },
+      { id: "kdigo", label: "KDIGO stage", value: "No AKI", direction: null, source: "lab", significant: false, detail: "creatinine 1.0 mg/dL" },
+      { id: "lactate", label: "Lactate", value: "not measured", direction: null, source: "lab", significant: false },
+    ] },
     tier_c: makeTierC(0.12, 300, [
       { feature: "Troponin (last lab)", contribution: 0.16 },
       { feature: "Beta-blocker on board", contribution: -0.14 },
@@ -231,6 +256,10 @@ const ranked: ScoreRow[] = [
       { feature: "Respiratory rate vs baseline", contribution: 0.03 },
       { feature: "SpO₂ trend slope (3h)", contribution: -0.02 },
     ]),
+    escalation_reasons: [
+      { rule: "tier_a_threshold", text: "NEWS2 ≥ 7" },
+      { rule: "tier_b_finding", text: "Troponin elevated, trend pending", pathway: "ischaemia" },
+    ],
     synthetic: true, signal_quality: 98, last_update_s: 2,
   },
   {
@@ -249,7 +278,16 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(4, { sodium: 140, potassium: 4.3, creatinine: 0.9, bun: 14, hemoglobin: 102, hematocrit: 0.31, wbc: 9.8, platelet_count: 245000, pt: 12.1, inr: 1.1, blood_glucose: 110 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.01, respiratory_rate_baseline: 17, perfusion_index: 0.7, substrate_risk: "normal" },
+    tier_b: { findings: [
+      { id: "af", label: "Arrhythmia burden", value: "1%", direction: "stable", source: "device", significant: false },
+      { id: "rr", label: "Respiratory rate", value: "+6% vs baseline", direction: "stable", source: "device", significant: false, detail: "vs personal baseline 17/min" },
+      { id: "pi", label: "Perfusion index", value: "0.70", direction: "stable", source: "device", significant: false },
+      { id: "hrv", label: "HRV (RMSSD)", value: "35 ms", direction: "stable", source: "device", significant: false },
+      { id: "trop", label: "Troponin trend", value: "not measured", direction: null, source: "lab", significant: false, detail: "expected post-op — order if chest pain" },
+      { id: "k-mg", label: "K⁺", value: "4.3 mEq/L", direction: "stable", source: "lab", significant: false },
+      { id: "kdigo", label: "KDIGO stage", value: "No AKI", direction: null, source: "lab", significant: false, detail: "creatinine 0.9 mg/dL" },
+      { id: "lactate", label: "Lactate", value: "not measured", direction: null, source: "lab", significant: false },
+    ] },
     tier_c: makeTierC(0.08, 540, [
       { feature: "Post-op day 1", contribution: 0.11 },
       { feature: "Hemoglobin (last lab)", contribution: 0.07 },
@@ -257,6 +295,9 @@ const ranked: ScoreRow[] = [
       { feature: "Heart rate trend slope (3h)", contribution: -0.04 },
       { feature: "Respiratory rate vs baseline", contribution: 0.02 },
     ]),
+    escalation_reasons: [
+      { rule: "tier_a_threshold", text: "NEWS2 ≥ 5" },
+    ],
     synthetic: true, signal_quality: 96, last_update_s: 8,
   },
   {
@@ -275,7 +316,16 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(9, { bnp: 920, sodium: 131, potassium: 4.6, creatinine: 1.8, bun: 32, hemoglobin: 110, wbc: 7.6, platelet_count: 175000, sgpt: 38, blood_glucose: 118 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.08, respiratory_rate_baseline: 18, perfusion_index: 0.45, substrate_risk: "creatinine rising, labs stale" },
+    tier_b: { findings: [
+      { id: "af", label: "Arrhythmia burden", value: "8%", direction: "rising", source: "device", significant: true },
+      { id: "rr", label: "Respiratory rate", value: "+11% vs baseline", direction: "stable", source: "device", significant: false, detail: "vs personal baseline 18/min" },
+      { id: "pi", label: "Perfusion index", value: "0.45", direction: "falling", source: "device", significant: true, detail: "below 0.50 threshold" },
+      { id: "hrv", label: "HRV (SDNN)", value: "31 ms", direction: "falling", source: "device", significant: true },
+      { id: "trop", label: "Troponin trend", value: "not measured", direction: null, source: "lab", significant: false },
+      { id: "k-mg", label: "K⁺ / Mg²⁺", value: "4.6 / -- mEq/L", direction: "rising", source: "lab", significant: false, detail: "K⁺ high-normal; Mg not measured; watch against arrhythmia burden" },
+      { id: "kdigo", label: "KDIGO stage", value: "Stage 2", direction: "rising", source: "lab", significant: true, detail: "creatinine 1.8 mg/dL, rising — labs 9h old" },
+      { id: "lactate", label: "Lactate", value: "not measured", direction: null, source: "lab", significant: false, detail: "would corroborate perfusion finding" },
+    ] },
     tier_c: makeTierC(0.14, 660, [
       { feature: "Creatinine trend", contribution: 0.13 },
       { feature: "BNP (last lab)", contribution: 0.10 },
@@ -284,6 +334,11 @@ const ranked: ScoreRow[] = [
       { feature: "Respiratory rate vs baseline", contribution: 0.04 },
       { feature: "Labs stale (>8h)", contribution: 0.03 },
     ]),
+    escalation_reasons: [
+      { rule: "tier_a_threshold", text: "NEWS2 ≥ 5" },
+      { rule: "tier_b_finding", text: "KDIGO stage 2, rising", pathway: "renal" },
+      { rule: "tier_b_finding", text: "Perfusion index below threshold", pathway: "perfusion" },
+    ],
     synthetic: true, signal_quality: 91, last_update_s: 6,
   },
   {
@@ -302,7 +357,16 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(5, { sodium: 138, potassium: 4.0, creatinine: 1.1, bun: 18, hemoglobin: 142, wbc: 6.8, platelet_count: 230000, blood_glucose: 105 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.02, respiratory_rate_baseline: null, perfusion_index: 0.6, substrate_risk: "incomplete workup" },
+    tier_b: { findings: [
+      { id: "af", label: "Arrhythmia burden", value: "2%", direction: "stable", source: "device", significant: false },
+      { id: "rr", label: "Respiratory rate", value: "baseline pending", direction: null, source: "device", significant: false, detail: "insufficient wear time for personal baseline" },
+      { id: "pi", label: "Perfusion index", value: "0.60", direction: "stable", source: "device", significant: false },
+      { id: "hrv", label: "HRV (SDNN)", value: "48 ms", direction: "stable", source: "device", significant: false },
+      { id: "trop", label: "Troponin trend", value: "not measured", direction: null, source: "lab", significant: false },
+      { id: "k-mg", label: "K⁺", value: "4.0 mEq/L", direction: "stable", source: "lab", significant: false },
+      { id: "kdigo", label: "KDIGO stage", value: "No AKI", direction: null, source: "lab", significant: false, detail: "creatinine 1.1 mg/dL" },
+      { id: "lactate", label: "Lactate", value: "not measured", direction: null, source: "lab", significant: false },
+    ] },
     tier_c: makeTierC(0.09, 480, [
       { feature: "Incomplete workup (no echo)", contribution: 0.08 },
       { feature: "Blood pressure", contribution: 0.05 },
@@ -310,6 +374,9 @@ const ranked: ScoreRow[] = [
       { feature: "Respiratory rate vs baseline", contribution: 0.03 },
       { feature: "Age", contribution: 0.03 },
     ]),
+    escalation_reasons: [
+      { rule: "tier_a_threshold", text: "NEWS2 ≥ 4" },
+    ],
     synthetic: true, signal_quality: 97, last_update_s: 3,
   },
   {
@@ -328,7 +395,16 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(2, { sodium: 142, potassium: 3.9, creatinine: 0.9, bun: 12, hemoglobin: 132, wbc: 7.2, platelet_count: 260000, sgpt: 28, blood_glucose: 92 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.01, respiratory_rate_baseline: 16, perfusion_index: 0.8, substrate_risk: "normal" },
+    tier_b: { findings: [
+      { id: "af", label: "Arrhythmia burden", value: "1%", direction: "stable", source: "device", significant: false },
+      { id: "rr", label: "Respiratory rate", value: "0% vs baseline", direction: "stable", source: "device", significant: false, detail: "vs personal baseline 16/min" },
+      { id: "pi", label: "Perfusion index", value: "0.80", direction: "stable", source: "device", significant: false },
+      { id: "hrv", label: "HRV (SDNN)", value: "52 ms", direction: "stable", source: "device", significant: false },
+      { id: "trop", label: "Troponin trend", value: "not measured", direction: null, source: "lab", significant: false },
+      { id: "k-mg", label: "K⁺", value: "3.9 mEq/L", direction: "stable", source: "lab", significant: false },
+      { id: "kdigo", label: "KDIGO stage", value: "No AKI", direction: null, source: "lab", significant: false, detail: "creatinine 0.9 mg/dL" },
+      { id: "lactate", label: "Lactate", value: "not measured", direction: null, source: "lab", significant: false },
+    ] },
     tier_c: makeTierC(0.05, 360, [
       { feature: "Systolic blood pressure", contribution: 0.07 },
       { feature: "Labetalol response", contribution: -0.06 },
@@ -336,6 +412,9 @@ const ranked: ScoreRow[] = [
       { feature: "SpO₂ (current)", contribution: -0.02 },
       { feature: "Age", contribution: 0.02 },
     ]),
+    escalation_reasons: [
+      { rule: "tier_a_threshold", text: "NEWS2 = 3" },
+    ],
     synthetic: true, signal_quality: 99, last_update_s: 1,
   },
   {
@@ -354,7 +433,16 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(6, { sodium: 140, potassium: 4.2, creatinine: 0.8, bun: 15, hemoglobin: 128, wbc: 6.0, platelet_count: 210000, blood_glucose: 88 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.35, respiratory_rate_baseline: 15, perfusion_index: 0.7, substrate_risk: "normal" },
+    tier_b: { findings: [
+      { id: "af", label: "Arrhythmia burden", value: "35%", direction: "falling", source: "device", significant: true, detail: "AF burden declining with rate control" },
+      { id: "rr", label: "Respiratory rate", value: "−7% vs baseline", direction: "stable", source: "device", significant: false, detail: "vs personal baseline 15/min" },
+      { id: "pi", label: "Perfusion index", value: "0.70", direction: "stable", source: "device", significant: false },
+      { id: "hrv", label: "HRV (RMSSD)", value: "22 ms", direction: "stable", source: "device", significant: true, detail: "reduced — expected in AF" },
+      { id: "trop", label: "Troponin trend", value: "not measured", direction: null, source: "lab", significant: false },
+      { id: "k-mg", label: "K⁺", value: "4.2 mEq/L", direction: "stable", source: "lab", significant: false },
+      { id: "kdigo", label: "KDIGO stage", value: "No AKI", direction: null, source: "lab", significant: false, detail: "creatinine 0.8 mg/dL" },
+      { id: "lactate", label: "Lactate", value: "not measured", direction: null, source: "lab", significant: false },
+    ] },
     tier_c: makeTierC(0.06, 600, [
       { feature: "Arrhythmia burden", contribution: 0.09 },
       { feature: "Rate control (6h)", contribution: -0.05 },
@@ -362,6 +450,9 @@ const ranked: ScoreRow[] = [
       { feature: "Respiratory rate vs baseline", contribution: -0.02 },
       { feature: "SpO₂ trend slope (3h)", contribution: -0.02 },
     ]),
+    escalation_reasons: [
+      { rule: "tier_b_finding", text: "AF burden 35%", pathway: "arrhythmia" },
+    ],
     synthetic: true, signal_quality: 95, last_update_s: 5,
   },
   {
@@ -380,7 +471,16 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(2, { troponin: 0.009, sodium: 141, potassium: 4.0, creatinine: 0.9, bun: 13, hemoglobin: 155, wbc: 7.0, platelet_count: 280000, blood_glucose: 94 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.0, respiratory_rate_baseline: null, perfusion_index: 0.9, substrate_risk: "normal" },
+    tier_b: { findings: [
+      { id: "af", label: "Arrhythmia burden", value: "0%", direction: "stable", source: "device", significant: false },
+      { id: "rr", label: "Respiratory rate", value: "baseline pending", direction: null, source: "device", significant: false, detail: "insufficient wear time for personal baseline" },
+      { id: "pi", label: "Perfusion index", value: "0.90", direction: "stable", source: "device", significant: false },
+      { id: "hrv", label: "HRV (SDNN)", value: "68 ms", direction: "stable", source: "device", significant: false },
+      { id: "trop", label: "Troponin trend", value: "<0.01 ng/mL", direction: "stable", source: "lab", significant: false, detail: "negative — reassuring" },
+      { id: "k-mg", label: "K⁺", value: "4.0 mEq/L", direction: "stable", source: "lab", significant: false },
+      { id: "kdigo", label: "KDIGO stage", value: "No AKI", direction: null, source: "lab", significant: false, detail: "creatinine 0.9 mg/dL" },
+      { id: "lactate", label: "Lactate", value: "not measured", direction: null, source: "lab", significant: false },
+    ] },
     tier_c: makeTierC(0.03, 300, [
       { feature: "Troponin negative (last lab)", contribution: -0.06 },
       { feature: "Age", contribution: -0.05 },
@@ -388,6 +488,7 @@ const ranked: ScoreRow[] = [
       { feature: "Respiratory rate vs baseline", contribution: 0.01 },
       { feature: "SpO₂ (current)", contribution: -0.01 },
     ]),
+    escalation_reasons: [],
     synthetic: true, signal_quality: 99, last_update_s: 2,
   },
   {
@@ -406,7 +507,16 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(7, { sodium: 139, potassium: 4.4, creatinine: 1.0, bun: 17, hemoglobin: 126, wbc: 6.5, platelet_count: 195000, blood_glucose: 100 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.01, respiratory_rate_baseline: 15, perfusion_index: 0.85, substrate_risk: "normal" },
+    tier_b: { findings: [
+      { id: "af", label: "Arrhythmia burden", value: "1%", direction: "stable", source: "device", significant: false },
+      { id: "rr", label: "Respiratory rate", value: "0% vs baseline", direction: "stable", source: "device", significant: false, detail: "vs personal baseline 15/min" },
+      { id: "pi", label: "Perfusion index", value: "0.85", direction: "stable", source: "device", significant: false },
+      { id: "hrv", label: "HRV (SDNN)", value: "55 ms", direction: "stable", source: "device", significant: false },
+      { id: "trop", label: "Troponin trend", value: "not measured", direction: null, source: "lab", significant: false },
+      { id: "k-mg", label: "K⁺", value: "4.4 mEq/L", direction: "stable", source: "lab", significant: false },
+      { id: "kdigo", label: "KDIGO stage", value: "No AKI", direction: null, source: "lab", significant: false, detail: "creatinine 1.0 mg/dL" },
+      { id: "lactate", label: "Lactate", value: "not measured", direction: null, source: "lab", significant: false },
+    ] },
     tier_c: makeTierC(0.04, 4200, [
       { feature: "Age", contribution: 0.05 },
       { feature: "Chronic angina history", contribution: 0.04 },
@@ -414,6 +524,7 @@ const ranked: ScoreRow[] = [
       { feature: "Respiratory rate vs baseline", contribution: 0.01 },
       { feature: "SpO₂ trend slope (3h)", contribution: -0.01 },
     ]),
+    escalation_reasons: [],
     synthetic: true, signal_quality: 97, last_update_s: 7,
   },
   {
@@ -432,7 +543,16 @@ const ranked: ScoreRow[] = [
     labs: makeLabs(3, { sodium: 140, potassium: 4.1, creatinine: 0.8, bun: 11, hemoglobin: 150, wbc: 5.8, platelet_count: 240000, blood_glucose: 90 }),
     sort_tier: "A",
     tier_status: TIERS,
-    tier_b: { arrhythmia_burden: 0.0, respiratory_rate_baseline: 14, perfusion_index: 0.9, substrate_risk: "normal" },
+    tier_b: { findings: [
+      { id: "af", label: "Arrhythmia burden", value: "0%", direction: "stable", source: "device", significant: false },
+      { id: "rr", label: "Respiratory rate", value: "−7% vs baseline", direction: "falling", source: "device", significant: false, detail: "vs personal baseline 14/min" },
+      { id: "pi", label: "Perfusion index", value: "0.90", direction: "stable", source: "device", significant: false },
+      { id: "hrv", label: "HRV (SDNN)", value: "62 ms", direction: "rising", source: "device", significant: false, detail: "improving" },
+      { id: "trop", label: "Troponin trend", value: "not measured", direction: null, source: "lab", significant: false },
+      { id: "k-mg", label: "K⁺", value: "4.1 mEq/L", direction: "stable", source: "lab", significant: false },
+      { id: "kdigo", label: "KDIGO stage", value: "No AKI", direction: null, source: "lab", significant: false, detail: "creatinine 0.8 mg/dL" },
+      { id: "lactate", label: "Lactate", value: "not measured", direction: null, source: "lab", significant: false },
+    ] },
     tier_c: makeTierC(0.02, 5400, [
       { feature: "Improving trajectory (24h)", contribution: -0.07 },
       { feature: "Age", contribution: -0.04 },
@@ -440,6 +560,7 @@ const ranked: ScoreRow[] = [
       { feature: "Temperature trend (6h)", contribution: -0.02 },
       { feature: "Respiratory rate vs baseline", contribution: -0.01 },
     ]),
+    escalation_reasons: [],
     synthetic: true, signal_quality: 98, last_update_s: 3,
   },
 ];

@@ -42,6 +42,8 @@ contract-test:
 
 # CI gate: run the schema tests, regenerate, fail if the committed artifacts differ.
 contract-check: contract-test contract
-	@test -z "$$(git status --porcelain -- $(GENERATED))" || { \
+	@git rev-parse --git-dir >/dev/null || { echo "contract-check needs a git checkout"; exit 1; }
+	@changed="$$(git status --porcelain -- $(GENERATED))" || exit 1; \
+	test -z "$$changed" || { \
 	  echo "contract drift: regenerate with 'make contract' and commit"; \
 	  git --no-pager diff --stat -- $(GENERATED); exit 1; }

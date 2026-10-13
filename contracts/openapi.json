@@ -1,0 +1,2315 @@
+{
+  "components": {
+    "schemas": {
+      "AbstainedRow": {
+        "additionalProperties": false,
+        "description": "NOT RANKED is a first-class row (I4): a reason and an instruction, no score, no rank.",
+        "properties": {
+          "admitting_context": {
+            "type": "string"
+          },
+          "age": {
+            "anyOf": [
+              {
+                "maximum": 150,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bed": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "instruction": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "sex": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "synthetic": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "age",
+          "sex",
+          "bed",
+          "admitting_context",
+          "reason",
+          "instruction",
+          "synthetic"
+        ],
+        "title": "AbstainedRow",
+        "type": "object"
+      },
+      "Acvpu": {
+        "description": "NEWS2 level of consciousness: Alert, new Confusion, Voice, Pain, Unresponsive.",
+        "enum": [
+          "A",
+          "C",
+          "V",
+          "P",
+          "U"
+        ],
+        "title": "Acvpu",
+        "type": "string"
+      },
+      "AcvpuMeasurement": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AcvpuPresent"
+              },
+              {
+                "$ref": "#/components/schemas/MeasurementAbsent"
+              }
+            ]
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "data",
+          "provenance"
+        ],
+        "title": "AcvpuMeasurement",
+        "type": "object"
+      },
+      "AcvpuPresent": {
+        "additionalProperties": false,
+        "properties": {
+          "present": {
+            "const": true,
+            "type": "boolean"
+          },
+          "value": {
+            "$ref": "#/components/schemas/Acvpu"
+          }
+        },
+        "required": [
+          "present",
+          "value"
+        ],
+        "title": "AcvpuPresent",
+        "type": "object"
+      },
+      "AdmissionCondition": {
+        "enum": [
+          "ambulatory",
+          "wheelchair",
+          "stretcher"
+        ],
+        "title": "AdmissionCondition",
+        "type": "string"
+      },
+      "AdmissionRoute": {
+        "enum": [
+          "er_triage",
+          "direct_admission",
+          "transfer"
+        ],
+        "title": "AdmissionRoute",
+        "type": "string"
+      },
+      "AdmitPatientInput": {
+        "additionalProperties": false,
+        "properties": {
+          "admissionRoute": {
+            "$ref": "#/components/schemas/AdmissionRoute"
+          },
+          "admittingContext": {
+            "type": "string"
+          },
+          "age": {
+            "maximum": 150,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "allergies": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "attendingPhysician": {
+            "type": "string"
+          },
+          "bed": {
+            "type": "string"
+          },
+          "chiefComplaint": {
+            "type": "string"
+          },
+          "civilStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CivilStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "conditionOnAdmission": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdmissionCondition"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "contactNumber": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "dateOfBirth": {
+            "format": "date",
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "heightCm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "initialAvpu": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Acvpu"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "initialBp": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{2,3}/\\d{2,3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "middleName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "nameExtension": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "philhealthPin": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{2}-\\d{9}-\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "sex": {
+            "$ref": "#/components/schemas/Sex"
+          },
+          "weightKg": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "lastName",
+          "firstName",
+          "dateOfBirth",
+          "age",
+          "sex",
+          "bed",
+          "admissionRoute",
+          "chiefComplaint",
+          "admittingContext",
+          "attendingPhysician"
+        ],
+        "title": "AdmitPatientInput",
+        "type": "object"
+      },
+      "BloodPressure": {
+        "additionalProperties": false,
+        "description": "Structured on purpose: the \"SBP/DBP\" string is display only and is never parsed.",
+        "properties": {
+          "diastolic": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "systolic": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "systolic",
+          "diastolic"
+        ],
+        "title": "BloodPressure",
+        "type": "object"
+      },
+      "BloodPressureMeasurement": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BloodPressurePresent"
+              },
+              {
+                "$ref": "#/components/schemas/MeasurementAbsent"
+              }
+            ]
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "data",
+          "provenance"
+        ],
+        "title": "BloodPressureMeasurement",
+        "type": "object"
+      },
+      "BloodPressurePresent": {
+        "additionalProperties": false,
+        "properties": {
+          "present": {
+            "const": true,
+            "type": "boolean"
+          },
+          "value": {
+            "$ref": "#/components/schemas/BloodPressure"
+          }
+        },
+        "required": [
+          "present",
+          "value"
+        ],
+        "title": "BloodPressurePresent",
+        "type": "object"
+      },
+      "CivilStatus": {
+        "enum": [
+          "single",
+          "married",
+          "widowed",
+          "separated"
+        ],
+        "title": "CivilStatus",
+        "type": "string"
+      },
+      "ClinicalNote": {
+        "additionalProperties": false,
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "patient_id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "synthetic": {
+            "type": "boolean"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "patient_id",
+          "author",
+          "role",
+          "timestamp",
+          "content",
+          "synthetic"
+        ],
+        "title": "ClinicalNote",
+        "type": "object"
+      },
+      "EscalationReason": {
+        "additionalProperties": false,
+        "properties": {
+          "pathway": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "rule": {
+            "$ref": "#/components/schemas/EscalationRule"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule",
+          "text"
+        ],
+        "title": "EscalationReason",
+        "type": "object"
+      },
+      "EscalationRule": {
+        "enum": [
+          "tier_a_threshold",
+          "tier_c_raise",
+          "tier_b_finding",
+          "missing_input"
+        ],
+        "title": "EscalationRule",
+        "type": "string"
+      },
+      "FindingDirection": {
+        "enum": [
+          "rising",
+          "falling",
+          "stable",
+          "new"
+        ],
+        "title": "FindingDirection",
+        "type": "string"
+      },
+      "FlagMeasurement": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FlagPresent"
+              },
+              {
+                "$ref": "#/components/schemas/MeasurementAbsent"
+              }
+            ]
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "data",
+          "provenance"
+        ],
+        "title": "FlagMeasurement",
+        "type": "object"
+      },
+      "FlagPresent": {
+        "additionalProperties": false,
+        "properties": {
+          "present": {
+            "const": true,
+            "type": "boolean"
+          },
+          "value": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "present",
+          "value"
+        ],
+        "title": "FlagPresent",
+        "type": "object"
+      },
+      "LabExtractionResult": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "additionalProperties": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "type": "object"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "synthetic": {
+            "type": "boolean"
+          },
+          "values": {
+            "$ref": "#/components/schemas/PartialLabInput"
+          }
+        },
+        "required": [
+          "values",
+          "confidence",
+          "synthetic",
+          "model_id"
+        ],
+        "title": "LabExtractionResult",
+        "type": "object"
+      },
+      "LabPanel": {
+        "additionalProperties": false,
+        "description": "Units follow Philippine hospital convention. null = no result; never zero (I1).",
+        "properties": {
+          "blood_glucose": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "mg/dL"
+          },
+          "bnp": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "pg/mL"
+          },
+          "bun": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "mg/dL"
+          },
+          "calcium": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "mg/dL"
+          },
+          "chloride": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "mEq/L"
+          },
+          "ck_mb": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "U/L"
+          },
+          "creatinine": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "mg/dL"
+          },
+          "freshness_hours": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hematocrit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "fraction (0-1)"
+          },
+          "hemoglobin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "g/L (PH convention)"
+          },
+          "inr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ratio"
+          },
+          "lactate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "mmol/L"
+          },
+          "magnesium": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "mg/dL"
+          },
+          "nt_probnp": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "pg/mL"
+          },
+          "platelet_count": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "/mm^3"
+          },
+          "potassium": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "mEq/L"
+          },
+          "pt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "seconds"
+          },
+          "sgot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "U/L (AST)"
+          },
+          "sgpt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "U/L (ALT)"
+          },
+          "sodium": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "mEq/L"
+          },
+          "troponin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ng/mL (conventional) or ng/L (hs)"
+          },
+          "wbc": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumberMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "x10^9/L"
+          }
+        },
+        "required": [
+          "troponin",
+          "ck_mb",
+          "bnp",
+          "nt_probnp",
+          "sodium",
+          "potassium",
+          "chloride",
+          "magnesium",
+          "calcium",
+          "creatinine",
+          "bun",
+          "hemoglobin",
+          "hematocrit",
+          "wbc",
+          "platelet_count",
+          "pt",
+          "inr",
+          "sgpt",
+          "sgot",
+          "blood_glucose",
+          "lactate",
+          "freshness_hours"
+        ],
+        "title": "LabPanel",
+        "type": "object"
+      },
+      "MeasurementAbsent": {
+        "additionalProperties": false,
+        "description": "A value that is not there, with the reason. Never a zero, never a default (I1).",
+        "properties": {
+          "present": {
+            "const": false,
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "present",
+          "reason"
+        ],
+        "title": "MeasurementAbsent",
+        "type": "object"
+      },
+      "NumberMeasurement": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NumberPresent"
+              },
+              {
+                "$ref": "#/components/schemas/MeasurementAbsent"
+              }
+            ]
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "data",
+          "provenance"
+        ],
+        "title": "NumberMeasurement",
+        "type": "object"
+      },
+      "NumberPresent": {
+        "additionalProperties": false,
+        "properties": {
+          "present": {
+            "const": true,
+            "type": "boolean"
+          },
+          "value": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "present",
+          "value"
+        ],
+        "title": "NumberPresent",
+        "type": "object"
+      },
+      "PartialAdmitPatientInput": {
+        "additionalProperties": false,
+        "description": "AdmitPatientInput with every field optional (extraction results).",
+        "properties": {
+          "admissionRoute": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdmissionRoute"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "admittingContext": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "age": {
+            "anyOf": [
+              {
+                "maximum": 150,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "allergies": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "attendingPhysician": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "bed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "chiefComplaint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "civilStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CivilStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "conditionOnAdmission": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdmissionCondition"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "contactNumber": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "dateOfBirth": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "firstName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "heightCm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "initialAvpu": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Acvpu"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "initialBp": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{2,3}/\\d{2,3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "lastName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "middleName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "nameExtension": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "philhealthPin": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{2}-\\d{9}-\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "sex": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sex"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "weightKg": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "title": "PartialAdmitPatientInput",
+        "type": "object"
+      },
+      "PartialLabInput": {
+        "additionalProperties": false,
+        "description": "Nurse- or OCR-entered lab values. Omitted = not entered; there is no default value.",
+        "properties": {
+          "blood_glucose": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "bnp": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "bun": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "calcium": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "chloride": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "ck_mb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "creatinine": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "hematocrit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "hemoglobin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "inr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "lactate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "magnesium": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "nt_probnp": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "platelet_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "potassium": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "pt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "sgot": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "sgpt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "sodium": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "troponin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "wbc": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "title": "PartialLabInput",
+        "type": "object"
+      },
+      "PatientDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "admitting_context": {
+            "type": "string"
+          },
+          "age": {
+            "anyOf": [
+              {
+                "maximum": 150,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bed": {
+            "type": "string"
+          },
+          "escalation_reasons": {
+            "items": {
+              "$ref": "#/components/schemas/EscalationReason"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "labs": {
+            "$ref": "#/components/schemas/LabPanel"
+          },
+          "last_update_s": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "mechanism": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rank": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "score": {
+            "maximum": 20,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sex": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "signal_quality": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "sort_tier": {
+            "$ref": "#/components/schemas/Tier"
+          },
+          "supporting": {
+            "type": "string"
+          },
+          "synthetic": {
+            "type": "boolean"
+          },
+          "tier_b": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TierBData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tier_breakdown": {
+            "$ref": "#/components/schemas/TierBreakdown"
+          },
+          "tier_c": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TierCData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tier_status": {
+            "items": {
+              "$ref": "#/components/schemas/TierStatus"
+            },
+            "type": "array"
+          },
+          "trend": {
+            "$ref": "#/components/schemas/Trend"
+          },
+          "vital_history": {
+            "$ref": "#/components/schemas/VitalHistoryFull"
+          },
+          "vital_trends": {
+            "$ref": "#/components/schemas/VitalTrends"
+          },
+          "vitals": {
+            "$ref": "#/components/schemas/Vitals"
+          }
+        },
+        "required": [
+          "id",
+          "rank",
+          "score",
+          "trend",
+          "name",
+          "age",
+          "sex",
+          "bed",
+          "admitting_context",
+          "mechanism",
+          "supporting",
+          "vitals",
+          "vital_trends",
+          "labs",
+          "sort_tier",
+          "tier_status",
+          "tier_b",
+          "tier_c",
+          "escalation_reasons",
+          "synthetic",
+          "signal_quality",
+          "last_update_s",
+          "vital_history",
+          "tier_breakdown"
+        ],
+        "title": "PatientDetail",
+        "type": "object"
+      },
+      "PatientExtractionResult": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "additionalProperties": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "type": "object"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "synthetic": {
+            "type": "boolean"
+          },
+          "values": {
+            "$ref": "#/components/schemas/PartialAdmitPatientInput"
+          }
+        },
+        "required": [
+          "values",
+          "confidence",
+          "synthetic",
+          "model_id"
+        ],
+        "title": "PatientExtractionResult",
+        "type": "object"
+      },
+      "Provenance": {
+        "additionalProperties": false,
+        "description": "Where a value came from. Every key is required; null is allowed only where stated.",
+        "properties": {
+          "computed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "observed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/QualityLevel"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ProvenanceSource"
+          },
+          "synthetic": {
+            "type": "boolean"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Tier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "source",
+          "tier",
+          "observed_at",
+          "computed_at",
+          "model_id",
+          "synthetic",
+          "quality"
+        ],
+        "title": "Provenance",
+        "type": "object"
+      },
+      "ProvenanceSource": {
+        "enum": [
+          "device",
+          "nurse",
+          "lab",
+          "derived",
+          "model",
+          "reference"
+        ],
+        "title": "ProvenanceSource",
+        "type": "string"
+      },
+      "QualityLevel": {
+        "enum": [
+          "ok",
+          "degraded",
+          "missing"
+        ],
+        "title": "QualityLevel",
+        "type": "string"
+      },
+      "ScoreRow": {
+        "additionalProperties": false,
+        "description": "A ranked patient: carries a NEWS2 score and rank. That every required input was\npresent is enforced by the scorer and arbiter (CP4/5), not by this schema (I1, I4).",
+        "properties": {
+          "admitting_context": {
+            "type": "string"
+          },
+          "age": {
+            "anyOf": [
+              {
+                "maximum": 150,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bed": {
+            "type": "string"
+          },
+          "escalation_reasons": {
+            "items": {
+              "$ref": "#/components/schemas/EscalationReason"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "labs": {
+            "$ref": "#/components/schemas/LabPanel"
+          },
+          "last_update_s": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "mechanism": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rank": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "score": {
+            "maximum": 20,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sex": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "signal_quality": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "sort_tier": {
+            "$ref": "#/components/schemas/Tier"
+          },
+          "supporting": {
+            "type": "string"
+          },
+          "synthetic": {
+            "type": "boolean"
+          },
+          "tier_b": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TierBData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tier_c": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TierCData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tier_status": {
+            "items": {
+              "$ref": "#/components/schemas/TierStatus"
+            },
+            "type": "array"
+          },
+          "trend": {
+            "$ref": "#/components/schemas/Trend"
+          },
+          "vital_trends": {
+            "$ref": "#/components/schemas/VitalTrends"
+          },
+          "vitals": {
+            "$ref": "#/components/schemas/Vitals"
+          }
+        },
+        "required": [
+          "id",
+          "rank",
+          "score",
+          "trend",
+          "name",
+          "age",
+          "sex",
+          "bed",
+          "admitting_context",
+          "mechanism",
+          "supporting",
+          "vitals",
+          "vital_trends",
+          "labs",
+          "sort_tier",
+          "tier_status",
+          "tier_b",
+          "tier_c",
+          "escalation_reasons",
+          "synthetic",
+          "signal_quality",
+          "last_update_s"
+        ],
+        "title": "ScoreRow",
+        "type": "object"
+      },
+      "Session": {
+        "additionalProperties": false,
+        "properties": {
+          "clinician_id": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/SessionRole"
+          },
+          "ward": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "clinician_id",
+          "ward",
+          "role"
+        ],
+        "title": "Session",
+        "type": "object"
+      },
+      "SessionRole": {
+        "enum": [
+          "rn",
+          "md",
+          "charge_rn"
+        ],
+        "title": "SessionRole",
+        "type": "string"
+      },
+      "Sex": {
+        "enum": [
+          "M",
+          "F"
+        ],
+        "title": "Sex",
+        "type": "string"
+      },
+      "Spo2Scale": {
+        "description": "RCP NEWS2 SpO2 scoring scale. Scale 2 is clinician-assigned (hypercapnic failure).",
+        "enum": [
+          1,
+          2
+        ],
+        "title": "Spo2Scale",
+        "type": "integer"
+      },
+      "Spo2ScaleMeasurement": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Spo2ScalePresent"
+              },
+              {
+                "$ref": "#/components/schemas/MeasurementAbsent"
+              }
+            ]
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "required": [
+          "data",
+          "provenance"
+        ],
+        "title": "Spo2ScaleMeasurement",
+        "type": "object"
+      },
+      "Spo2ScalePresent": {
+        "additionalProperties": false,
+        "properties": {
+          "present": {
+            "const": true,
+            "type": "boolean"
+          },
+          "value": {
+            "$ref": "#/components/schemas/Spo2Scale"
+          }
+        },
+        "required": [
+          "present",
+          "value"
+        ],
+        "title": "Spo2ScalePresent",
+        "type": "object"
+      },
+      "Tier": {
+        "enum": [
+          "A",
+          "B",
+          "C"
+        ],
+        "title": "Tier",
+        "type": "string"
+      },
+      "TierAScore": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "score": {
+            "maximum": 20,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "score",
+          "label"
+        ],
+        "title": "TierAScore",
+        "type": "object"
+      },
+      "TierBData": {
+        "additionalProperties": false,
+        "properties": {
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/TierBFinding"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "findings"
+        ],
+        "title": "TierBData",
+        "type": "object"
+      },
+      "TierBFinding": {
+        "additionalProperties": false,
+        "description": "A named observation with its own units. Not comparable on a shared scale.",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FindingDirection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "significant": {
+            "type": "boolean"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ProvenanceSource"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "value",
+          "direction",
+          "source",
+          "significant"
+        ],
+        "title": "TierBFinding",
+        "type": "object"
+      },
+      "TierBreakdown": {
+        "additionalProperties": false,
+        "properties": {
+          "tier_a": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TierAScore"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tier_b": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TierBData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tier_c": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TierCData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "tier_a",
+          "tier_b",
+          "tier_c"
+        ],
+        "title": "TierBreakdown",
+        "type": "object"
+      },
+      "TierCAttribution": {
+        "additionalProperties": false,
+        "properties": {
+          "contribution": {
+            "type": "number"
+          },
+          "feature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "feature",
+          "contribution"
+        ],
+        "title": "TierCAttribution",
+        "type": "object"
+      },
+      "TierCData": {
+        "additionalProperties": false,
+        "properties": {
+          "attributions": {
+            "items": {
+              "$ref": "#/components/schemas/TierCAttribution"
+            },
+            "type": "array"
+          },
+          "forecast_window": {
+            "type": "string"
+          },
+          "risk_probability": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "scored_seconds_ago": {
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "risk_probability",
+          "forecast_window",
+          "scored_seconds_ago",
+          "attributions"
+        ],
+        "title": "TierCData",
+        "type": "object"
+      },
+      "TierCInput": {
+        "additionalProperties": false,
+        "description": "Everything Tier C may read. Features in, never verdicts (OVERVIEW: fuse inputs).",
+        "properties": {
+          "admitting_context": {
+            "type": "string"
+          },
+          "age": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "as_of": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "labs": {
+            "$ref": "#/components/schemas/LabPanel"
+          },
+          "patient_id": {
+            "type": "string"
+          },
+          "sex": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "synthetic": {
+            "type": "boolean"
+          },
+          "vital_trends": {
+            "$ref": "#/components/schemas/VitalTrends"
+          },
+          "vitals": {
+            "$ref": "#/components/schemas/Vitals"
+          }
+        },
+        "required": [
+          "patient_id",
+          "as_of",
+          "age",
+          "sex",
+          "admitting_context",
+          "vitals",
+          "vital_trends",
+          "labs",
+          "synthetic"
+        ],
+        "title": "TierCInput",
+        "type": "object"
+      },
+      "TierStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "live": {
+            "type": "boolean"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/Tier"
+          }
+        },
+        "required": [
+          "tier",
+          "live",
+          "label"
+        ],
+        "title": "TierStatus",
+        "type": "object"
+      },
+      "Trend": {
+        "enum": [
+          "rising",
+          "falling",
+          "stable",
+          "insufficient"
+        ],
+        "title": "Trend",
+        "type": "string"
+      },
+      "VitalHistory": {
+        "additionalProperties": false,
+        "properties": {
+          "time": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "time",
+          "value"
+        ],
+        "title": "VitalHistory",
+        "type": "object"
+      },
+      "VitalHistoryFull": {
+        "additionalProperties": false,
+        "properties": {
+          "heart_rate": {
+            "items": {
+              "$ref": "#/components/schemas/VitalHistory"
+            },
+            "type": "array"
+          },
+          "respiratory_rate": {
+            "items": {
+              "$ref": "#/components/schemas/VitalHistory"
+            },
+            "type": "array"
+          },
+          "spo2": {
+            "items": {
+              "$ref": "#/components/schemas/VitalHistory"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "heart_rate",
+          "respiratory_rate",
+          "spo2"
+        ],
+        "title": "VitalHistoryFull",
+        "type": "object"
+      },
+      "VitalTrends": {
+        "additionalProperties": false,
+        "properties": {
+          "heart_rate": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "respiratory_rate": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "spo2": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "temperature": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "heart_rate",
+          "respiratory_rate",
+          "spo2",
+          "temperature"
+        ],
+        "title": "VitalTrends",
+        "type": "object"
+      },
+      "Vitals": {
+        "additionalProperties": false,
+        "properties": {
+          "blood_pressure": {
+            "$ref": "#/components/schemas/BloodPressureMeasurement"
+          },
+          "consciousness": {
+            "$ref": "#/components/schemas/AcvpuMeasurement"
+          },
+          "heart_rate": {
+            "$ref": "#/components/schemas/NumberMeasurement"
+          },
+          "respiratory_rate": {
+            "$ref": "#/components/schemas/NumberMeasurement"
+          },
+          "spo2": {
+            "$ref": "#/components/schemas/NumberMeasurement"
+          },
+          "spo2_scale": {
+            "$ref": "#/components/schemas/Spo2ScaleMeasurement"
+          },
+          "supplemental_o2": {
+            "$ref": "#/components/schemas/FlagMeasurement"
+          },
+          "temperature": {
+            "$ref": "#/components/schemas/NumberMeasurement"
+          }
+        },
+        "required": [
+          "heart_rate",
+          "respiratory_rate",
+          "spo2",
+          "temperature",
+          "blood_pressure",
+          "consciousness",
+          "supplemental_o2",
+          "spo2_scale"
+        ],
+        "title": "Vitals",
+        "type": "object"
+      },
+      "WardResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "abstained": {
+            "items": {
+              "$ref": "#/components/schemas/AbstainedRow"
+            },
+            "type": "array"
+          },
+          "clinician": {
+            "type": "string"
+          },
+          "ranked": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreRow"
+            },
+            "type": "array"
+          },
+          "receiving_data": {
+            "type": "boolean"
+          },
+          "shift": {
+            "type": "string"
+          },
+          "sort_tier": {
+            "$ref": "#/components/schemas/Tier"
+          },
+          "tier_status": {
+            "items": {
+              "$ref": "#/components/schemas/TierStatus"
+            },
+            "type": "array"
+          },
+          "ward": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ward",
+          "clinician",
+          "shift",
+          "receiving_data",
+          "sort_tier",
+          "tier_status",
+          "ranked",
+          "abstained"
+        ],
+        "title": "WardResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "BioSentry Intelligence contract",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {}
+}

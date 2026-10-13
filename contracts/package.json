@@ -1,0 +1,14 @@
+{
+  "name": "biosentry-contracts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Dev-only toolchain: OpenAPI (from the Pydantic schemas) to TypeScript types. Isolated from frontend/ because openapi-typescript's peer is typescript ^5.",
+  "scripts": {
+    "generate": "openapi-typescript openapi.json -o ../frontend/src/types/generated.ts --immutable --alphabetize --root-types --root-types-no-schema-prefix --default-non-nullable false"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
+  }
+}

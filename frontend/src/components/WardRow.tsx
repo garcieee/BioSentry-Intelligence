@@ -75,7 +75,10 @@ export function WardRow({ row }: Props) {
         <div className={styles.metaCol}>
           <div className={styles.nursePair}>
             <span className={styles.nurseLabel}>BP</span>
-            <MeasurementDisplay measurement={row.vitals.blood_pressure} />
+            <MeasurementDisplay
+              measurement={row.vitals.blood_pressure}
+              format={(bp) => `${bp.systolic}/${bp.diastolic}`}
+            />
           </div>
           <div className={styles.nursePair}>
             <span className={styles.nurseLabel}>AVPU</span>

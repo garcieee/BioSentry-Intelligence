@@ -4,7 +4,9 @@
 
 import type {
   AbstainedRow,
+  Acvpu,
   AdmitPatientInput,
+  BloodPressure,
   ClinicalNote,
   LabExtractionResult,
   LabPanel,
@@ -94,7 +96,7 @@ function genHistory(base: number, variance: number, direction: number, n = 24): 
 
 function makeVitals(
   hr: number, rr: number, spo2: number, temp: number,
-  bp: string | null, avpu: string | null,
+  bp: BloodPressure | null, avpu: Acvpu | null,
   ts: string, nurseTs: string,
 ): Vitals {
   return {
@@ -108,6 +110,10 @@ function makeVitals(
     consciousness: avpu !== null
       ? present(avpu, nurseProv(nurseTs))
       : missing("not_measured", nurseProv(nurseTs)),
+    // NEWS2 inputs added to the contract (D3). Fixtures carry no values yet; CP3's
+    // generator supplies them. Absent with a reason, never a default.
+    supplemental_o2: missing("not_recorded", nurseProv(nurseTs)),
+    spo2_scale: missing("not_recorded", nurseProv(nurseTs)),
   };
 }
 
@@ -185,7 +191,7 @@ const ranked: ScoreRow[] = [
     admitting_context: "Acute decompensated heart failure, admitted 36h ago",
     mechanism: "Sorted on NEWS2. Tier B and C pending implementation.",
     supporting: "HR 118 bpm, BP 88/52 (nurse), BNP 1840 pg/mL (lab, 1h)",
-    vitals: makeVitals(118, 26, 91, 37.2, "88/52", "A", now, now),
+    vitals: makeVitals(118, 26, 91, 37.2, { systolic: 88, diastolic: 52 }, "A", now, now),
     vital_trends: {
       heart_rate: genTrend(102, 20, 1),
       respiratory_rate: genTrend(20, 8, 1),
@@ -226,7 +232,7 @@ const ranked: ScoreRow[] = [
     admitting_context: "Post-ACS step-down, 6h since transfer from CCU, on metoprolol",
     mechanism: "Sorted on NEWS2. Tier B and C pending implementation.",
     supporting: "HR 58 bpm, BP 104/68 (nurse), Troponin 0.42 ng/mL (lab, 3h)",
-    vitals: makeVitals(58, 22, 94, 36.8, "104/68", "A", now, now),
+    vitals: makeVitals(58, 22, 94, 36.8, { systolic: 104, diastolic: 68 }, "A", now, now),
     vital_trends: {
       heart_rate: genTrend(62, 8, -0.5),
       respiratory_rate: genTrend(20, 4, 0.3),
@@ -266,7 +272,7 @@ const ranked: ScoreRow[] = [
     admitting_context: "Post-operative day 1, CABG, stable",
     mechanism: "Sorted on NEWS2. Tier B and C pending implementation.",
     supporting: "HR 82 bpm, BP 126/78 (nurse), Hgb 10.2 g/dL (lab, 4h)",
-    vitals: makeVitals(82, 18, 96, 37.4, "126/78", "A", now, now),
+    vitals: makeVitals(82, 18, 96, 37.4, { systolic: 126, diastolic: 78 }, "A", now, now),
     vital_trends: {
       heart_rate: genTrend(90, 12, -1),
       respiratory_rate: genTrend(20, 4, -0.5),
@@ -304,7 +310,7 @@ const ranked: ScoreRow[] = [
     admitting_context: "Heart failure with reduced EF, chronic, admitted for volume overload",
     mechanism: "Sorted on NEWS2. Tier B and C pending implementation.",
     supporting: "HR 94 bpm, BP 110/70 (nurse), BNP 920 pg/mL (lab, 9h)",
-    vitals: makeVitals(94, 20, 95, 36.9, "110/70", "A", now, now),
+    vitals: makeVitals(94, 20, 95, 36.9, { systolic: 110, diastolic: 70 }, "A", now, now),
     vital_trends: {
       heart_rate: genTrend(92, 6, 0.2),
       respiratory_rate: genTrend(19, 3, 0.1),
@@ -345,7 +351,7 @@ const ranked: ScoreRow[] = [
     admitting_context: "Heart failure, suspected, no echocardiogram yet",
     mechanism: "Sorted on NEWS2. Tier B and C pending implementation.",
     supporting: "HR 88 bpm, BP 132/84 (nurse), BNP not measured",
-    vitals: makeVitals(88, 20, 96, 37.0, "132/84", "A", now, now),
+    vitals: makeVitals(88, 20, 96, 37.0, { systolic: 132, diastolic: 84 }, "A", now, now),
     vital_trends: {
       heart_rate: genTrend(86, 6, 0.3),
       respiratory_rate: genTrend(19, 3, 0.1),
@@ -383,7 +389,7 @@ const ranked: ScoreRow[] = [
     admitting_context: "Hypertensive urgency, responding to IV labetalol",
     mechanism: "Sorted on NEWS2. Tier B and C pending implementation.",
     supporting: "HR 76 bpm, BP 158/96 (nurse)",
-    vitals: makeVitals(76, 16, 98, 36.7, "158/96", "A", now, now),
+    vitals: makeVitals(76, 16, 98, 36.7, { systolic: 158, diastolic: 96 }, "A", now, now),
     vital_trends: {
       heart_rate: genTrend(80, 8, -0.5),
       respiratory_rate: genTrend(17, 2, -0.2),
@@ -421,7 +427,7 @@ const ranked: ScoreRow[] = [
     admitting_context: "Atrial fibrillation, rate controlled, awaiting cardioversion",
     mechanism: "Sorted on NEWS2. Tier B and C pending implementation.",
     supporting: "HR 84 bpm, BP 122/76 (nurse)",
-    vitals: makeVitals(84, 14, 98, 36.6, "122/76", "A", now, now),
+    vitals: makeVitals(84, 14, 98, 36.6, { systolic: 122, diastolic: 76 }, "A", now, now),
     vital_trends: {
       heart_rate: genTrend(88, 8, -0.5),
       respiratory_rate: genTrend(15, 2, -0.2),
@@ -459,7 +465,7 @@ const ranked: ScoreRow[] = [
     admitting_context: "Chest pain, low risk, admitted 4h ago for observation",
     mechanism: "Sorted on NEWS2. Tier B and C pending implementation.",
     supporting: "HR 72 bpm, BP 120/78 (nurse), Troponin <0.01 ng/mL (lab, 2h)",
-    vitals: makeVitals(72, 14, 99, 36.5, "120/78", "A", now, now),
+    vitals: makeVitals(72, 14, 99, 36.5, { systolic: 120, diastolic: 78 }, "A", now, now),
     vital_trends: {
       heart_rate: genTrend(72, 4, 0),
       respiratory_rate: genTrend(14, 1, 0),
@@ -495,7 +501,7 @@ const ranked: ScoreRow[] = [
     admitting_context: "Chronic stable angina, medication adjustment",
     mechanism: "Sorted on NEWS2. Tier B and C pending implementation.",
     supporting: "HR 70 bpm, BP 134/82 (nurse)",
-    vitals: makeVitals(70, 15, 97, 36.4, "134/82", "A", now, now),
+    vitals: makeVitals(70, 15, 97, 36.4, { systolic: 134, diastolic: 82 }, "A", now, now),
     vital_trends: {
       heart_rate: genTrend(71, 3, 0),
       respiratory_rate: genTrend(15, 1, 0),
@@ -531,7 +537,7 @@ const ranked: ScoreRow[] = [
     admitting_context: "Pericarditis, improving, discharge planned tomorrow",
     mechanism: "Sorted on NEWS2. Tier B and C pending implementation.",
     supporting: "HR 68 bpm, BP 118/72 (nurse)",
-    vitals: makeVitals(68, 13, 99, 36.5, "118/72", "A", now, now),
+    vitals: makeVitals(68, 13, 99, 36.5, { systolic: 118, diastolic: 72 }, "A", now, now),
     vital_trends: {
       heart_rate: genTrend(70, 4, -0.3),
       respiratory_rate: genTrend(14, 1, -0.1),
@@ -636,14 +642,14 @@ export async function getWard(): Promise<WardResponse> {
 
 const notesStore: Map<string, ClinicalNote[]> = new Map([
   ["p-001", [
-    { id: "n-001", patient_id: "p-001", author: "RN Dela Cruz", role: "RN", timestamp: "2026-09-03T06:45:00Z", content: "Patient restless, diaphoretic. BP trending down from previous shift. Elevated troponin noted -- MD notified." },
-    { id: "n-002", patient_id: "p-001", author: "Dr Reyes", role: "MD", timestamp: "2026-09-03T06:30:00Z", content: "Reviewed labs. Troponin rise consistent with NSTEMI. Cardiology consult placed. Hold metoprolol if SBP < 100." },
+    { id: "n-001", patient_id: "p-001", author: "RN Dela Cruz", role: "RN", timestamp: "2026-09-03T06:45:00Z", content: "Patient restless, diaphoretic. BP trending down from previous shift. Elevated troponin noted -- MD notified.", synthetic: true },
+    { id: "n-002", patient_id: "p-001", author: "Dr Reyes", role: "MD", timestamp: "2026-09-03T06:30:00Z", content: "Reviewed labs. Troponin rise consistent with NSTEMI. Cardiology consult placed. Hold metoprolol if SBP < 100.", synthetic: true },
   ]],
   ["p-002", [
-    { id: "n-003", patient_id: "p-002", author: "RN Santos", role: "RN", timestamp: "2026-09-03T06:15:00Z", content: "Increased work of breathing. Repositioned to high Fowler's. SpO2 improved from 91% to 93% on 4L NC." },
+    { id: "n-003", patient_id: "p-002", author: "RN Santos", role: "RN", timestamp: "2026-09-03T06:15:00Z", content: "Increased work of breathing. Repositioned to high Fowler's. SpO2 improved from 91% to 93% on 4L NC.", synthetic: true },
   ]],
   ["p-003", [
-    { id: "n-004", patient_id: "p-003", author: "RN Dela Cruz", role: "RN", timestamp: "2026-09-03T05:50:00Z", content: "Patient alert and oriented. Tolerating oral meds. No acute complaints this shift." },
+    { id: "n-004", patient_id: "p-003", author: "RN Dela Cruz", role: "RN", timestamp: "2026-09-03T05:50:00Z", content: "Patient alert and oriented. Tolerating oral meds. No acute complaints this shift.", synthetic: true },
   ]],
 ]);
 
@@ -659,6 +665,7 @@ export async function addNote(patientId: string, author: string, role: string, c
     role,
     timestamp: new Date().toISOString(),
     content,
+    synthetic: true,
   };
   const existing = notesStore.get(patientId) ?? [];
   notesStore.set(patientId, [note, ...existing]);
@@ -706,8 +713,10 @@ export async function enterLabResults(
   if (idx === -1) throw new Error(`Patient ${patientId} not found in ranked list`);
 
   const existing = ranked[idx].labs;
-  const u = (key: keyof PartialLabInput) =>
-    labs[key] !== undefined ? present(labs[key], prov) : existing[key];
+  const u = (key: keyof PartialLabInput) => {
+    const value = labs[key];
+    return value !== undefined && value !== null ? present(value, prov) : existing[key];
+  };
   const updated: LabPanel = {
     troponin: u("troponin"), ck_mb: u("ck_mb"), bnp: u("bnp"), nt_probnp: u("nt_probnp"),
     sodium: u("sodium"), potassium: u("potassium"), chloride: u("chloride"),

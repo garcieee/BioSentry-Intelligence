@@ -127,7 +127,7 @@ function AdmitForm() {
       ...(weightKg ? { weightKg: parseFloat(weightKg) } : {}),
       ...(heightCm ? { heightCm: parseFloat(heightCm) } : {}),
       ...(bp.trim() ? { initialBp: bp.trim() } : {}),
-      ...(avpu ? { initialAvpu: avpu as "A" | "V" | "P" | "U" } : {}),
+      ...(avpu ? { initialAvpu: avpu as "A" | "C" | "V" | "P" | "U" } : {}),
     };
 
     const row = await admitPatient(input);
@@ -253,10 +253,11 @@ function AdmitForm() {
           <input className={styles.input} placeholder="e.g. 120/80" value={bp} onChange={(e) => setBp(e.target.value)} />
         </div>
         <div className={styles.field}>
-          <label className={styles.label}>Consciousness (AVPU)</label>
+          <label className={styles.label}>Consciousness (ACVPU)</label>
           <select className={styles.select} value={avpu} onChange={(e) => setAvpu(e.target.value)}>
             <option value="">--</option>
             <option value="A">Alert</option>
+            <option value="C">New confusion</option>
             <option value="V">Verbal</option>
             <option value="P">Pain</option>
             <option value="U">Unresponsive</option>

@@ -23,6 +23,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests/contract"]
 addopts = "-ra --strict-markers"
 
 [tool.ruff]

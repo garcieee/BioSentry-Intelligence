@@ -4,7 +4,7 @@ interface DataPoint {
 }
 
 interface Props {
-  data: DataPoint[];
+  data: readonly DataPoint[];
   label: string;
   unit: string;
   width?: number;

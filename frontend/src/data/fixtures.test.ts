@@ -13,7 +13,7 @@ import {
   setActiveClinician,
 } from "./fixtures";
 import type {
-  Measurement,
+  Provenance,
   ProvenanceSource,
   QualityLevel,
   ScoreRow,
@@ -24,15 +24,26 @@ const SOURCES: readonly ProvenanceSource[] = [
   "device", "nurse", "lab", "derived", "model", "reference",
 ];
 const QUALITY: readonly QualityLevel[] = ["ok", "degraded", "missing"];
-const NURSE_VITALS = new Set(["blood_pressure", "consciousness"]);
+// Nurse-entered vitals (CP1 added the structured BP and the NEWS2 oxygen inputs).
+const NURSE_VITALS = new Set(["blood_pressure", "consciousness", "spo2_scale", "supplemental_o2"]);
 // Ids of the sign-in profiles (src/pages/SignIn.tsx).
 const CLINICIANS = ["rn-delacruz", "rn-reyes", "rn-manalo", "md-santos", "md-aquino"];
+
+// Structural view of any generated *Measurement (number, string, boolean or BP object).
+interface AnyMeasurement {
+  readonly data: {
+    readonly present: boolean;
+    readonly value?: unknown;
+    readonly reason?: string;
+  };
+  readonly provenance: Provenance;
+}
 
 interface Named {
   readonly path: string;
   readonly kind: "vital" | "lab";
   readonly key: string;
-  readonly m: Measurement<number | string>;
+  readonly m: AnyMeasurement;
 }
 
 function measurements(row: ScoreRow): Named[] {
@@ -94,9 +105,17 @@ describe("I1 missing is missing", () => {
         if (m.data.present) {
           const v = m.data.value;
           if (typeof v === "number") expect(v, path).toBeGreaterThan(0);
-          else expect(v.length, path).toBeGreaterThan(0);
+          else if (typeof v === "string") expect(v.length, path).toBeGreaterThan(0);
+          else if (typeof v === "boolean") expect(v === true || v === false, path).toBe(true);
+          else {
+            expect(v, path).toBeTypeOf("object");
+            for (const [k, n] of Object.entries(v as Record<string, unknown>)) {
+              expect(typeof n, `${path}.${k}`).toBe("number");
+              expect(n as number, `${path}.${k}`).toBeGreaterThan(0);
+            }
+          }
         } else {
-          expect(m.data.reason.length, path).toBeGreaterThan(0);
+          expect((m.data.reason ?? "").length, path).toBeGreaterThan(0);
         }
       }
     }

@@ -60,4 +60,6 @@ Maximum 20.
   population or on synthetic data.
 - Scope per the RCP report (adult patients). The scorer does not check age.
 - Physical-impossibility checks are guards, not clinical plausibility ranges; plausibility
-  belongs to the signal quality gate.
+  belongs to the signal quality gate. Exactly 0 is scored for heart rate and respiratory rate
+  (asystole and apnoea are real) but rejected for SpO2, temperature and systolic BP, where 0
+  is what a zero-fill looks like.

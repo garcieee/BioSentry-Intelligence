@@ -177,11 +177,12 @@ def oracle_temp(tenths: int) -> int:
 
 
 def test_integer_parameters_match_the_oracle_over_the_range() -> None:
-    for v in range(301):
+    for v in range(301):  # 0 is a real reading for rate parameters (apnoea, asystole)
         assert parameter(score(respiratory_rate=v), "respiratory_rate").score == oracle_rr(v)
         assert parameter(score(heart_rate=v), "heart_rate").score == oracle_hr(v)
+    for v in range(1, 301):  # 0 SBP and 0 SpO2 abstain (zero-fill), see the tests below
         assert parameter(score(systolic_bp=v), "systolic_bp").score == oracle_sbp(v)
-    for v in range(101):
+    for v in range(1, 101):
         for scale in (Spo2Scale.scale_1, Spo2Scale.scale_2):
             for on_o2 in (False, True):
                 got = parameter(
@@ -332,9 +333,18 @@ def test_physically_impossible_numbers_abstain_and_never_clamp(field: str, value
     assert result.problems == (InputProblem(field, Problem.implausible),)
 
 
-def test_zero_is_a_value_not_a_missing_marker() -> None:
-    result = score(respiratory_rate=0)  # a real, if alarming, reading
-    assert parameter(result, "respiratory_rate").score == 3
+@pytest.mark.parametrize("field", ["respiratory_rate", "heart_rate"])
+def test_zero_is_a_scorable_reading_for_apnoea_and_asystole(field: str) -> None:
+    result = score(**{field: 0})  # real, if alarming, readings
+    assert parameter(result, field).score == 3
+
+
+@pytest.mark.parametrize("field", ["spo2", "temperature", "systolic_bp"])
+def test_zero_is_a_zero_fill_for_spo2_temperature_and_sbp(field: str) -> None:
+    changes: dict[str, Any] = {field: 0}
+    result = score_news2(replace(BASE, **changes))
+    assert isinstance(result, News2Abstained)
+    assert result.problems == (InputProblem(field, Problem.implausible),)
 
 
 # --- Rounding (PLAN D13): half-up, Decimal, not round() ---------------------------------

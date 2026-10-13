@@ -38,9 +38,12 @@ from biosentry.schemas.common import (
 from . import tables
 from .tables import Band
 
-# Guard against sensor garbage, not a clinical plausibility range (the quality gate owns that).
+# Guards against sensor garbage, not a clinical plausibility range (the quality gate owns that).
+# Exactly 0 is a real reading for heart rate (asystole) and respiratory rate (apnoea), but for
+# these three it is what a zero-fill looks like, so it abstains instead of scoring 3.
 _PHYSICAL_MAX: Final = 1000.0
 _SPO2_MAX: Final = 100.0
+_ZERO_IS_NOT_A_READING: Final = frozenset({"spo2", "temperature", "systolic_bp"})
 
 
 class Risk(StrEnum):
@@ -52,7 +55,9 @@ class Risk(StrEnum):
 
 class Problem(StrEnum):
     missing = "missing"  # absent, quality "missing", or not a finite number
-    implausible = "implausible"  # physically impossible: negative, above 1000, SpO2 above 100
+    implausible = (
+        "implausible"  # impossible: negative, above 1000, SpO2 above 100, zero SpO2/temp/SBP
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,7 +154,8 @@ def _usable(name: str, value: float | None, problems: list[InputProblem]) -> flo
     if value is None or not math.isfinite(value):
         problems.append(InputProblem(name, Problem.missing))
         return None
-    if value < 0 or value > _PHYSICAL_MAX or (name == "spo2" and value > _SPO2_MAX):
+    below_floor = value <= 0 if name in _ZERO_IS_NOT_A_READING else value < 0
+    if below_floor or value > _PHYSICAL_MAX or (name == "spo2" and value > _SPO2_MAX):
         problems.append(InputProblem(name, Problem.implausible))
         return None
     return value

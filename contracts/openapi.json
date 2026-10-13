@@ -1623,7 +1623,7 @@
       },
       "ScoreRow": {
         "additionalProperties": false,
-        "description": "A ranked patient. Ranked means every required input was present (I1, I4).",
+        "description": "A ranked patient: carries a NEWS2 score and rank. That every required input was\npresent is enforced by the scorer and arbiter (CP4/5), not by this schema (I1, I4).",
         "properties": {
           "admitting_context": {
             "type": "string"

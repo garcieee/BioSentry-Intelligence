@@ -384,7 +384,8 @@ export interface components {
         readonly QualityLevel: "ok" | "degraded" | "missing";
         /**
          * ScoreRow
-         * @description A ranked patient. Ranked means every required input was present (I1, I4).
+         * @description A ranked patient: carries a NEWS2 score and rank. That every required input was
+         *     present is enforced by the scorer and arbiter (CP4/5), not by this schema (I1, I4).
          */
         readonly ScoreRow: {
             readonly admitting_context: string;

@@ -11,7 +11,8 @@ from .tiers import EscalationReason, TierBData, TierCData, TierStatus
 
 
 class ScoreRow(Contract):
-    """A ranked patient. Ranked means every required input was present (I1, I4)."""
+    """A ranked patient: carries a NEWS2 score and rank. That every required input was
+    present is enforced by the scorer and arbiter (CP4/5), not by this schema (I1, I4)."""
 
     id: str
     rank: Annotated[int, Field(strict=True, ge=1)]

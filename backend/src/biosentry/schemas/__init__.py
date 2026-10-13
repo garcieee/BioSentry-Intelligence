@@ -13,7 +13,7 @@ from .admission import (
     PatientExtractionResult,
     Sex,
 )
-from .clinical import LabPanel, PartialLabInput, VitalHistory, VitalHistoryFull, VitalTrends, Vitals
+from .clinical import LabPanel, PartialLabInput, VitalHistory, VitalHistoryFull, Vitals, VitalTrends
 from .common import (
     Acvpu,
     AcvpuMeasurement,

@@ -5,7 +5,6 @@ from typing import Any
 
 import pytest
 from pydantic import BaseModel, ValidationError
-from samples import provenance, sample
 
 from biosentry.schemas import (
     AbstainedRow,
@@ -22,6 +21,7 @@ from biosentry.schemas import (
     TierCInput,
 )
 from biosentry.schemas.openapi import build_openapi
+from samples import provenance, sample
 
 MEASUREMENTS = [
     NumberMeasurement,

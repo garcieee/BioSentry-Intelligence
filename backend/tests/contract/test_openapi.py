@@ -3,6 +3,7 @@
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 from biosentry.schemas.openapi import build_openapi, dumps
 
@@ -11,21 +12,46 @@ COMMITTED = REPO / "contracts" / "openapi.json"
 FRONTEND_TYPES = REPO / "frontend" / "src" / "types" / "index.ts"
 
 # Every name the hand-written frontend/src/types/index.ts exported before CP1.
-FRONTEND_TYPES_BEFORE_CP1 = """
-ProvenanceSource Tier QualityLevel Provenance Trend VitalHistory Vitals VitalTrends
-VitalHistoryFull LabPanel TierStatus TierBFinding TierBData TierCAttribution TierCData
-EscalationRule EscalationReason ScoreRow AbstainedRow WardResponse PatientDetail ClinicalNote
-SessionRole Session AdmissionCondition AdmitPatientInput PartialLabInput LabExtractionResult
-PatientExtractionResult
-""".split()
+FRONTEND_TYPES_BEFORE_CP1 = [
+    "ProvenanceSource",
+    "Tier",
+    "QualityLevel",
+    "Provenance",
+    "Trend",
+    "VitalHistory",
+    "Vitals",
+    "VitalTrends",
+    "VitalHistoryFull",
+    "LabPanel",
+    "TierStatus",
+    "TierBFinding",
+    "TierBData",
+    "TierCAttribution",
+    "TierCData",
+    "EscalationRule",
+    "EscalationReason",
+    "ScoreRow",
+    "AbstainedRow",
+    "WardResponse",
+    "PatientDetail",
+    "ClinicalNote",
+    "SessionRole",
+    "Session",
+    "AdmissionCondition",
+    "AdmitPatientInput",
+    "PartialLabInput",
+    "LabExtractionResult",
+    "PatientExtractionResult",
+]
 # Generic in TypeScript (hand-written wrappers, checked at compile time against the
 # concrete generated types); Pydantic has one concrete model per value type instead.
 GENERIC_WRAPPERS = {"Measurement", "MeasurementValue"}
 NEW_IN_CP1 = {"Acvpu", "BloodPressure", "Spo2Scale", "TierCInput"}
 
 
-def _schemas() -> dict[str, object]:
-    return build_openapi()["components"]["schemas"]
+def _schemas() -> dict[str, Any]:
+    schemas: dict[str, Any] = build_openapi()["components"]["schemas"]
+    return schemas
 
 
 def test_output_is_deterministic() -> None:
@@ -47,11 +73,9 @@ def test_is_openapi_31_with_components_only() -> None:
 
 def test_every_frontend_type_is_covered() -> None:
     schemas = _schemas()
-    missing = [
-        n for n in FRONTEND_TYPES_BEFORE_CP1 if n not in schemas
-    ]
+    missing = [n for n in FRONTEND_TYPES_BEFORE_CP1 if n not in schemas]
     assert missing == []
-    assert NEW_IN_CP1 <= set(schemas)
+    assert set(schemas) >= NEW_IN_CP1
 
 
 def test_every_name_the_frontend_exports_exists_in_the_contract() -> None:
@@ -74,7 +98,7 @@ def test_no_discriminator_objects_leak_into_the_document() -> None:
 def test_presence_flags_are_boolean_constants() -> None:
     schemas = _schemas()
     for name in ("NumberPresent", "FlagPresent", "AcvpuPresent", "MeasurementAbsent"):
-        prop = schemas[name]["properties"]["present"]  # type: ignore[index]
+        prop = schemas[name]["properties"]["present"]
         assert prop["type"] == "boolean"
         assert prop["const"] is (name != "MeasurementAbsent")
 

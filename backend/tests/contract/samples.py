@@ -41,8 +41,8 @@ from biosentry.schemas import (
     TierStatus,
     VitalHistory,
     VitalHistoryFull,
-    VitalTrends,
     Vitals,
+    VitalTrends,
     WardResponse,
 )
 from biosentry.schemas.common import (
@@ -55,10 +55,29 @@ from biosentry.schemas.common import (
 
 NOW = "2026-09-03T07:00:00Z"
 
-LAB_FIELDS = (
-    "troponin ck_mb bnp nt_probnp sodium potassium chloride magnesium calcium creatinine bun "
-    "hemoglobin hematocrit wbc platelet_count pt inr sgpt sgot blood_glucose lactate"
-).split()
+LAB_FIELDS = [
+    "troponin",
+    "ck_mb",
+    "bnp",
+    "nt_probnp",
+    "sodium",
+    "potassium",
+    "chloride",
+    "magnesium",
+    "calcium",
+    "creatinine",
+    "bun",
+    "hemoglobin",
+    "hematocrit",
+    "wbc",
+    "platelet_count",
+    "pt",
+    "inr",
+    "sgpt",
+    "sgot",
+    "blood_glucose",
+    "lactate",
+]
 
 
 def provenance(**overrides: Any) -> dict[str, Any]:
@@ -104,7 +123,7 @@ def vital_trends() -> dict[str, Any]:
 
 
 def labs() -> dict[str, Any]:
-    panel: dict[str, Any] = {name: None for name in LAB_FIELDS}
+    panel: dict[str, Any] = dict.fromkeys(LAB_FIELDS)
     panel["bnp"] = measurement(present(1840))
     panel["freshness_hours"] = 1
     return panel
@@ -229,7 +248,11 @@ _BUILDERS: dict[type[BaseModel], Any] = {
         "labs": labs(),
         "synthetic": True,
     },
-    EscalationReason: lambda: {"rule": "tier_b_finding", "text": "KDIGO rising", "pathway": "renal"},
+    EscalationReason: lambda: {
+        "rule": "tier_b_finding",
+        "text": "KDIGO rising",
+        "pathway": "renal",
+    },
     ScoreRow: score_row,
     AbstainedRow: abstained_row,
     WardResponse: lambda: {
@@ -253,7 +276,11 @@ _BUILDERS: dict[type[BaseModel], Any] = {
         "vital_history": {
             k: [{"time": "06:30", "value": 97}] for k in ("heart_rate", "respiratory_rate", "spo2")
         },
-        "tier_breakdown": {"tier_a": {"score": 9, "label": "NEWS2 9"}, "tier_b": None, "tier_c": None},
+        "tier_breakdown": {
+            "tier_a": {"score": 9, "label": "NEWS2 9"},
+            "tier_b": None,
+            "tier_c": None,
+        },
     },
     ClinicalNote: lambda: {
         "id": "n-001",

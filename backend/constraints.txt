@@ -2,10 +2,12 @@
 # Regenerate: make be-install in a fresh venv, then `pip freeze --exclude-editable | sort -f`.
 annotated-types==0.8.0
 ast_serialize==0.13.0
+hypothesis==6.169.1
 iniconfig==2.3.1
 librt==0.16.0
 mypy==2.4.0
 mypy_extensions==1.1.0
+numpy==2.4.6
 packaging==26.3
 pathspec==1.1.1
 pluggy==1.6.0
@@ -15,6 +17,7 @@ Pygments==2.21.0
 pytest==9.1.1
 PyYAML==6.0.3
 ruff==0.17.0
+sortedcontainers==2.4.0
 types-PyYAML==6.0.12.20260906
 typing-inspection==0.4.4
 typing_extensions==4.16.0

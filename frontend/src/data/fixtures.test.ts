@@ -106,7 +106,7 @@ describe("I1 missing is missing", () => {
           const v = m.data.value;
           if (typeof v === "number") expect(v, path).toBeGreaterThan(0);
           else if (typeof v === "string") expect(v.length, path).toBeGreaterThan(0);
-          else if (typeof v === "boolean") expect(v === true || v === false, path).toBe(true);
+          else if (typeof v === "boolean") continue;   // false (air) is a real value, never a fill
           else {
             expect(v, path).toBeTypeOf("object");
             for (const [k, n] of Object.entries(v as Record<string, unknown>)) {
@@ -252,13 +252,16 @@ describe("clinician scope (fixture stand-in for server-side filtering)", () => {
     });
   }
 
-  // KNOWN: visiblePatientIds() returns null (no filter) for a clinician id with
-  // no assignment entry, so an unknown id sees every patient. Access control
-  // must fail closed (OVERVIEW.md "Ward view"; the server-side version needs
-  // the same test). One-line fix in its own PR: return an empty Set.
-  it.fails("an unknown clinician id sees no patients (fail closed)", async () => {
+  // Fail closed: a clinician id with no assignment entry sees nobody, through the
+  // ward, the list and the detail endpoint alike (OVERVIEW.md "Ward view"; the
+  // server-side provider carries the same test).
+  it("an unknown clinician id sees no patients (fail closed)", async () => {
+    setActiveClinician(null);
+    const everyone = ids(await getWard());
     setActiveClinician("not-a-clinician");
     const w = await getWard();
     expect(ids(w)).toHaveLength(0);
+    expect(await listAllPatients()).toHaveLength(0);
+    for (const id of everyone) expect(await getPatient(id), id).toBeNull();
   });
 });

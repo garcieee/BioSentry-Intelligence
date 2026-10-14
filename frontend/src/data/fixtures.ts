@@ -605,10 +605,13 @@ export function setActiveClinician(id: string | null): void {
   _activeClinician = id;
 }
 
+// null = unscoped. Only "no active clinician" (a dev/test seam: sign-out clears
+// it and the UI never fetches in that state) is unscoped; a clinician id with
+// no assignment entry fails CLOSED and sees nobody.
 function visiblePatientIds(): Set<string> | null {
   if (!_activeClinician) return null;
   const ids = CLINICIAN_PATIENTS[_activeClinician];
-  if (!ids) return null;
+  if (!ids) return new Set();
   return new Set(ids);
 }
 

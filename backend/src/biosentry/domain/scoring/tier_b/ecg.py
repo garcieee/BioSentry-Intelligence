@@ -13,6 +13,8 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from .dsp import moving_average, true_runs
+
 FloatArray = NDArray[np.float64]
 
 MIN_RUN_S = 3.0  # a usable run shorter than this is not searched for beats
@@ -28,24 +30,7 @@ class Beats:
     times_s: tuple[float, ...]  # R-peak times, seconds from the start of the signal
     valid: tuple[bool, ...]  # beat passed the template-correlation check
     run: tuple[int, ...]  # id of the contiguous usable run the beat was found in
-
-
-def _moving_average(x: FloatArray, width: int) -> FloatArray:
-    """Centred moving average that only ever uses samples that exist (no edge padding)."""
-    width = min(max(1, width) | 1, len(x) if len(x) % 2 else len(x) - 1)
-    if width <= 1:
-        return x.copy()
-    kernel = np.ones(width, dtype=np.float64)
-    total = np.convolve(x, kernel, mode="same")
-    count = np.convolve(np.ones_like(x), kernel, mode="same")
-    return np.asarray(total / count, dtype=np.float64)
-
-
-def _true_runs(mask: NDArray[np.bool_]) -> list[tuple[int, int]]:
-    """[start, stop) of every maximal run of True."""
-    padded = np.concatenate(([False], mask, [False])).astype(np.int8)
-    edges = np.flatnonzero(np.diff(padded))
-    return [(int(a), int(b)) for a, b in zip(edges[0::2], edges[1::2], strict=True)]
+    amplitude: tuple[float, ...]  # |detrended signal| at the R peak, in signal units
 
 
 def _qrs_threshold(energy: FloatArray, fs: float) -> float:
@@ -66,17 +51,17 @@ def _qrs_threshold(energy: FloatArray, fs: float) -> float:
 
 def _detect_run(x: FloatArray, fs: float) -> tuple[list[int], FloatArray]:
     """R-peak sample indices in one gap-free run, plus the detrended signal."""
-    detrended = x - _moving_average(x, round(0.75 * fs))
-    smooth = _moving_average(detrended, round(0.02 * fs))
+    detrended = x - moving_average(x, round(0.75 * fs))
+    smooth = moving_average(detrended, round(0.02 * fs))
     slope = np.diff(smooth, prepend=smooth[0])
-    energy = _moving_average(slope * slope, round(0.12 * fs))
+    energy = moving_average(slope * slope, round(0.12 * fs))
     threshold = _qrs_threshold(energy, fs)
     if threshold <= 0.0:
         return [], detrended
     reach = round(0.05 * fs)
     refractory = round(REFRACTORY_S * fs)
     peaks: list[int] = []
-    for start, stop in _true_runs(energy > threshold):
+    for start, stop in true_runs(energy > threshold):
         lo, hi = max(0, start - reach), min(len(smooth), stop + reach)
         i = lo + int(np.argmax(np.abs(smooth[lo:hi])))
         if peaks and i - peaks[-1] < refractory:
@@ -114,7 +99,8 @@ def detect_beats(samples: Sequence[float], usable: Sequence[bool], fs: float) ->
     times: list[float] = []
     valid: list[bool] = []
     runs: list[int] = []
-    for run_id, (lo, hi) in enumerate(_true_runs(ok)):
+    amplitudes: list[float] = []
+    for run_id, (lo, hi) in enumerate(true_runs(ok)):
         if hi - lo < round(MIN_RUN_S * fs):
             continue
         peaks, detrended = _detect_run(x[lo:hi], fs)
@@ -122,4 +108,5 @@ def detect_beats(samples: Sequence[float], usable: Sequence[bool], fs: float) ->
             times.append((lo + p) / fs)
             valid.append(q)
             runs.append(run_id)
-    return Beats(tuple(times), tuple(valid), tuple(runs))
+            amplitudes.append(float(abs(detrended[p])))
+    return Beats(tuple(times), tuple(valid), tuple(runs), tuple(amplitudes))

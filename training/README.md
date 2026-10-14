@@ -3,7 +3,9 @@
 Offline model training for BioSentry. **Not part of the application**: nothing here is imported by
 `backend/` or `frontend/`, and no data or weights are committed (README I5; PhysioNet licences).
 Trained artifacts, the model card and the registry entry land under `models/` once CP5's registry
-schema exists.
+schema exists. The isolation is enforced, not just stated:
+`backend/tests/unit/test_training_isolation.py` fails the build if anything here imports
+`biosentry.*` or references `data/synthetic` (I5).
 
 Status: **spike (M3b)**, retrospective and on public data only.
 

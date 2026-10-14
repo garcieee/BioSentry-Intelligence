@@ -510,6 +510,7 @@ def test_sdnn_is_the_sample_standard_deviation_and_rmssd_the_successive_differen
     assert abs(got.sdnn_ms - float(np.std(intervals)) * 1000.0) > 0.5  # n - 1, not n
     assert got.mean_hr_bpm == pytest.approx(60.0 / float(np.mean(intervals)), abs=0.01)
     assert got.nn_coverage == pytest.approx(sum(intervals) / (len(x) / 250.0), abs=1e-6)
+    _assert_finite(got)
 
 
 def test_rmssd_never_differences_across_an_excluded_interval() -> None:
@@ -524,3 +525,59 @@ def test_rmssd_never_differences_across_an_excluded_interval() -> None:
     assert got.rmssd_ms == pytest.approx(16.0, abs=0.01)  # 34 differences, 16 ms each
     assert got.sdnn_ms == pytest.approx(float(np.std(before + after, ddof=1)) * 1000.0, abs=0.01)
     assert got.nn_coverage == pytest.approx(sum(before + after) / (len(x) / 250.0), abs=1e-6)
+    _assert_finite(got)
+
+
+# --- a value is never emitted with a non-finite field (I1) ------------------------------
+
+
+def _assert_finite(value: HrvValue) -> None:
+    for name in ("rmssd_ms", "sdnn_ms", "mean_hr_bpm", "nn_coverage"):
+        assert math.isfinite(getattr(value, name)), f"{name} is not finite"
+
+
+def test_valid_intervals_that_are_never_adjacent_are_refused_not_emitted_as_nan() -> None:
+    # two valid beats, then a wide inverted candidate 0.3 s later (detected, fails the template),
+    # repeating: 44 valid 2.0 s intervals cover 76% of the window, but no valid interval is next
+    # to another, so no successive difference exists and RMSSD would be the mean of nothing
+    fs = 250.0
+    period, beats = 2.6, []
+    for k in range(44):
+        s = 0.6 + period * k
+        beats += [(s, 1.0, 0.012), (s + 2.0, 1.0, 0.012), (s + 2.3, -1.0, 0.04)]
+    duration = 0.6 + period * 44 + 1.0
+    t = np.arange(round(duration * fs)) / fs
+    trace = np.zeros_like(t)
+    for tb, amp, sigma in beats:
+        trace += amp * np.exp(-0.5 * ((t - tb) / sigma) ** 2)
+    x = tuple(float(v) for v in trace)
+    nn, _, _ = nn_intervals(detect_beats(x, (True,) * len(x), fs))
+    finite = np.isfinite(nn)
+    assert finite.sum() == 44  # the isolated valid intervals
+    assert not (finite[:-1] & finite[1:]).any()  # and no two are adjacent
+    assert finite.sum() * 2.0 / duration >= 0.75  # so the coverage rule does not fire first
+    assert hrv_window(x, (True,) * len(x), fs) == NotComputed("insufficient_consecutive_nn")
+
+
+def test_no_hrv_value_is_emitted_with_a_non_finite_field() -> None:
+    rng = np.random.default_rng(7)
+    emitted = 0
+    for seed in range(24):
+        ecg = synth_ecg(
+            duration_s=float(rng.choice([30, 60, 90])),
+            hr_bpm=float(rng.choice([45, 70, 110])),
+            noise_sd_mv=float(rng.choice([0.02, 0.15])),
+            pvc_after_s=tuple(float(v) for v in rng.uniform(3, 25, int(rng.integers(0, 3)))),
+            seed=seed,
+        )
+        n = len(ecg.samples)
+        usable = np.ones(n, dtype=bool)
+        for _ in range(int(rng.integers(0, 4))):
+            lo = int(rng.integers(0, n))
+            usable[lo : lo + int(rng.choice([25, 250, 1500, 4000]))] = False
+        x = [v if ok else float("nan") for v, ok in zip(ecg.samples, usable, strict=True)]
+        got = hrv_window(x, tuple(bool(v) for v in usable), ecg.fs)
+        if isinstance(got, HrvValue):
+            _assert_finite(got)
+            emitted += 1
+    assert emitted >= 5  # the battery does compute values; it is not all refusals

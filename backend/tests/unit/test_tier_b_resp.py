@@ -609,3 +609,59 @@ def test_two_pulse_peaks_one_refractory_apart_are_two_pulses_and_one_sample_clos
     beats = [0.8 + k for k in range(10)]
     x = _bumps(12.0, fs, [*beats, 4.8 + samples_apart / fs], sigma_s=0.04)
     assert len(detect_pulses(x, (True,) * len(x), fs).times_s) == pulses
+
+
+def test_alternating_valid_and_invalid_pulses_have_no_rate_and_are_refused_not_emitted_as_nan() -> (
+    None
+):
+    # twelve valid pulses (share exactly 0.5, so the quality gate passes), each followed by a
+    # narrow candidate that fails the template: no two valid pulses are adjacent, so there is no
+    # interval to take a rate from, and a NaN rate would also pass the ECG-rate cross-check
+    fs = 100.0
+    pulses = [0.8 + k for k in range(13)]  # the first sits inside the first second: invalid
+    x = _bumps(pulses[-1] + 1.3, fs, pulses, [(p + 0.45, 36.0, 0.02) for p in pulses[1:-1]])
+    usable = (True,) * len(x)
+    found = detect_pulses(x, usable, fs)
+    assert sum(found.valid) == 12
+    assert sum(found.valid) / len(found.valid) == 0.5
+    assert not any(a and b for a, b in zip(found.valid, found.valid[1:], strict=False))
+    assert pi_window(x, usable, fs) == NotComputed("too_few_valid_pulses")
+    assert pi_window(x, usable, fs, expected_hr_bpm=60.0) == NotComputed("too_few_valid_pulses")
+
+
+def test_no_perfusion_index_is_emitted_with_a_non_finite_field() -> None:
+    rng = np.random.default_rng(11)
+    emitted = 0
+    for seed in range(16):
+        v = synth_vitals(
+            duration_s=float(rng.choice([20, 40])),
+            hr_bpm=float(rng.choice([45, 72, 110])),
+            noise=float(rng.choice([0.5, 3.0])),
+            seed=seed,
+        )
+        n = len(v.ppg)
+        usable = np.ones(n, dtype=bool)
+        for _ in range(int(rng.integers(0, 4))):
+            lo = int(rng.integers(0, n))
+            usable[lo : lo + int(rng.choice([20, 100, 400, 900]))] = False
+        x = [a if ok else float("nan") for a, ok in zip(v.ppg, usable, strict=True)]
+        got = pi_window(x, tuple(bool(u) for u in usable), v.ppg_fs, expected_hr_bpm=72.0)
+        if isinstance(got, PiValue):
+            for name in ("pi_percent", "valid_share", "pulse_rate_bpm"):
+                assert np.isfinite(getattr(got, name)), name
+            emitted += 1
+    assert emitted >= 3
+
+
+def test_at_the_top_of_the_breathing_band_a_run_of_exactly_the_minimum_still_votes() -> None:
+    # 30 breaths/min sits on the band edge, where 20.0 s is enough (the 30 s needed for 10-25
+    # per minute does not apply); 19.96 s is not. This is the one rate where the 20 s binds.
+    fs = 25.0
+    t = np.arange(round(64 * fs)) / fs
+    x = tuple(float(v) for v in 0.1 * np.sin(2 * np.pi * 0.5 * t))
+
+    def first(n: int) -> tuple[bool, ...]:
+        return tuple(i < n for i in range(len(x)))
+
+    assert rr_from_accel(x, first(500), fs) == pytest.approx(30.0, abs=0.5)
+    assert rr_from_accel(x, first(499), fs) is None

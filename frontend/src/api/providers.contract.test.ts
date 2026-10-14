@@ -193,7 +193,11 @@ describe.each(harnesses)("$name", ({ provider, signIn }) => {
   it("an admitted patient is NOT RANKED, visible to the admitting clinician only", async () => {
     signIn("rn-delacruz");
     const row = await provider.admitPatient(admission({ initialBp: "120/80" }));
-    expect(row.reason).toBe("Patch not yet applied");
+    // NOT RANKED with a reason and an instruction about the patch; no score, no rank.
+    expect(row.reason.length).toBeGreaterThan(0);
+    expect(row.instruction.toLowerCase()).toContain("patch");
+    expect(Object.keys(row)).not.toContain("score");
+    expect(Object.keys(row)).not.toContain("rank");
     expect(row.synthetic).toBe(true);
     const mine = await provider.getWard();
     expect(mine.abstained.map((a) => a.id)).toContain(row.id);
@@ -202,7 +206,7 @@ describe.each(harnesses)("$name", ({ provider, signIn }) => {
     expect(theirs.abstained.map((a) => a.id)).not.toContain(row.id);
   });
 
-  it.each(["20/80", "120/130", "400/80", "120/10", "12/8", "abc"])(
+  it.each(["19/10", "120/09", "20/80", "120/130", "301/80", "400/80", "300/201", "12/8", "abc"])(
     "an implausible or malformed admission blood pressure (%s) is rejected, never clamped",
     async (initialBp) => {
       signIn("rn-delacruz");
@@ -211,4 +215,58 @@ describe.each(harnesses)("$name", ({ provider, signIn }) => {
       expect((await provider.getWard()).abstained).toHaveLength(before);
     },
   );
+
+  it.each(["20/10", "45/20", "300/200"])(
+    "a critical but possible admission blood pressure (%s) is accepted as typed",
+    async (initialBp) => {
+      signIn("rn-delacruz");
+      const before = (await provider.getWard()).abstained.length;
+      const row = await provider.admitPatient(admission({ initialBp }));
+      expect(row.reason.length).toBeGreaterThan(0);
+      expect((await provider.getWard()).abstained).toHaveLength(before + 1);
+    },
+  );
 });
+
+// The way out of NOT RANKED needs the arbiter, which only the API has (D4: the frontend never
+// computes a score). Runs last so the earlier assertions see the dataset's original ward.
+describe.skipIf(!API_URL)("http provider: nurse-recorded vitals", () => {
+  it("recording the missing blood pressure ranks the patient at once; implausible is rejected", async () => {
+    httpSignIn("rn-delacruz");
+    const before = await httpProvider.getWard();
+    expect(before.abstained.find((a) => a.id === "p-004")?.reason).toBe("Systolic BP missing");
+
+    const rejected = await attempt(() =>
+      httpProvider.recordVitals("p-004", { systolic: 20, diastolic: 80 }),
+    );
+    expect(rejected.ok).toBe(false);
+    expect((await httpProvider.getWard()).abstained.map((a) => a.id)).toContain("p-004");
+
+    // A true critical reading is recordable, not refused: it ranks and escalates.
+    const critical = await httpProvider.recordVitals("p-004", { systolic: 45, diastolic: 20 });
+    expect(critical.ranked).toBe(true);
+    expect(critical.score).toBe(3);
+
+    const recorded = await httpProvider.recordVitals("p-004", { systolic: 130, diastolic: 84 });
+    expect(recorded.ranked).toBe(true);
+    expect(recorded.rank).not.toBeNull();
+    expect(recorded.score).not.toBeNull();
+    expect(recorded.blood_pressure?.provenance.source).toBe("nurse");
+
+    const after = await httpProvider.getWard();
+    expect(after.ranked.map((r) => r.id)).toContain("p-004");
+    expect(after.abstained.map((a) => a.id)).not.toContain("p-004");
+    expect(await httpProvider.getPatient("p-004")).not.toBeNull();
+  });
+
+  it("the fixture provider cannot re-rank and says so", async () => {
+    const failure = await attempt(() =>
+      fixtureProvider.recordVitals("p-004", { systolic: 130, diastolic: 84 }),
+    );
+    expect(failure.ok).toBe(false);
+  });
+});
+
+function httpSignIn(clinicianId: string): void {
+  setAuthToken(clinicianId);
+}

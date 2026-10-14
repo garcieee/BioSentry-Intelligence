@@ -24,6 +24,7 @@ from biosentry.schemas import (
     MeasurementAbsent,
     NewNote,
     NumberMeasurement,
+    NurseVitalsInput,
     PartialAdmitPatientInput,
     PartialLabInput,
     PatientDetail,
@@ -41,9 +42,11 @@ from biosentry.schemas import (
     TierCData,
     TierCInput,
     TierStatus,
+    UnscoredPatient,
     VitalHistory,
     VitalHistoryFull,
     Vitals,
+    VitalsRecorded,
     VitalTrends,
     WardResponse,
 )
@@ -183,6 +186,21 @@ def score_row() -> dict[str, Any]:
     }
 
 
+def unscored() -> dict[str, Any]:
+    row = score_row()
+    keys = (
+        "id", "name", "age", "sex", "bed", "admitting_context", "trend", "mechanism",
+        "supporting", "vitals", "vital_trends", "labs", "tier_b", "tier_c", "signal_quality",
+        "last_update_s", "synthetic",
+    )  # fmt: skip
+    state = {key: row[key] for key in keys}
+    state["vital_history"] = {
+        k: [{"time": "2026-09-03T06:30:00Z", "value": 97}]
+        for k in ("heart_rate", "respiratory_rate", "spo2")
+    }
+    return state
+
+
 def abstained_row() -> dict[str, Any]:
     return {
         "id": "p-011",
@@ -298,6 +316,20 @@ _BUILDERS: dict[type[BaseModel], Any] = {
     Session: lambda: {"clinician_id": "c-01", "ward": "4 East", "role": "rn"},
     NewNote: lambda: {"author": "RN Dela Cruz", "role": "RN", "content": "Patient restless."},
     PatientSummary: lambda: {"id": "p-001", "name": "Santos, Maria", "bed": "4A", "ranked": True},
+    NurseVitalsInput: lambda: {"systolic": 120, "diastolic": 80},
+    VitalsRecorded: lambda: {
+        "patient_id": "p-004",
+        "blood_pressure": measurement(present({"systolic": 120, "diastolic": 80})),
+        "consciousness": None,
+        "supplemental_o2": None,
+        "spo2_scale": None,
+        "ranked": True,
+        "rank": 3,
+        "score": 4,
+        "not_ranked_reason": None,
+        "not_ranked_instruction": None,
+    },
+    UnscoredPatient: lambda: unscored(),
     AdmitPatientInput: admit_input,
     PartialAdmitPatientInput: lambda: {"lastName": "Santos"},
     LabExtractionResult: lambda: {

@@ -147,13 +147,14 @@ function nextPatientId(): string {
 }
 
 // The server's rules for a nurse-typed admission blood pressure (physical bounds, never clamped).
+// The floor is low on purpose: a true critical reading such as 45/20 must be recordable.
 export function checkAdmissionBloodPressure(text: string): { systolic: number; diastolic: number } {
   const match = /^(\d{2,3})\/(\d{2,3})$/.exec(text);
   if (match === null) throw new Error("blood pressure must be written systolic/diastolic");
   const systolic = Number(match[1]);
   const diastolic = Number(match[2]);
-  if (systolic < 50 || systolic > 300) throw new Error(`systolic ${systolic} is outside 50-300`);
-  if (diastolic < 20 || diastolic > 200) throw new Error(`diastolic ${diastolic} is outside 20-200`);
+  if (systolic < 20 || systolic > 300) throw new Error(`systolic ${systolic} is outside 20-300`);
+  if (diastolic < 10 || diastolic > 200) throw new Error(`diastolic ${diastolic} is outside 10-200`);
   if (diastolic >= systolic) throw new Error("diastolic must be below systolic");
   return { systolic, diastolic };
 }

@@ -19,9 +19,11 @@ import type {
   ClinicalNote,
   LabExtractionResult,
   LabPanel,
+  NurseVitalsInput,
   PartialLabInput,
   PatientDetail,
   PatientExtractionResult,
+  VitalsRecorded,
   WardResponse,
 } from "../../types";
 import {
@@ -84,6 +86,10 @@ export const httpProvider: ApiProvider = {
     labs: PartialLabInput,
   ): Promise<LabPanel> {
     return postJson<LabPanel>(`/patients/${patientId}/labs`, labs);
+  },
+
+  recordVitals(patientId: string, input: NurseVitalsInput): Promise<VitalsRecorded> {
+    return postJson<VitalsRecorded>(`/patients/${patientId}/vitals`, input);
   },
 
   extractLabsFromFile(file: File): Promise<LabExtractionResult> {

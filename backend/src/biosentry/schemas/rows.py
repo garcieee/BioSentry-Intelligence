@@ -86,3 +86,31 @@ class PatientSummary(Contract):
     name: str
     bed: str
     ranked: Flag
+
+
+class UnscoredPatient(Contract):
+    """Everything known about a patient before any score exists.
+
+    This is the state behind both a ranked row and a NOT RANKED row: scores, ranks and
+    reasons are computed from it on read (never stored), so a recorded value re-ranks the
+    patient. `signal_quality` and `last_update_s` are null for a patient with no patch.
+    """
+
+    id: str
+    name: str
+    age: Age | None
+    sex: str | None
+    bed: str
+    admitting_context: str
+    trend: Trend
+    mechanism: str
+    supporting: str
+    vitals: Vitals
+    vital_trends: VitalTrends
+    vital_history: VitalHistoryFull
+    labs: LabPanel
+    tier_b: TierBData | None
+    tier_c: TierCData | None
+    signal_quality: Percent | None
+    last_update_s: NonNegNum | None
+    synthetic: Flag

@@ -39,6 +39,7 @@ export type {
   FindingDirection,
   LabExtractionResult,
   LabPanel,
+  NurseVitalsInput,
   PartialAdmitPatientInput,
   PartialLabInput,
   PatientDetail,
@@ -65,6 +66,7 @@ export type {
   VitalHistoryFull,
   VitalTrends,
   Vitals,
+  VitalsRecorded,
   WardResponse,
 } from "./generated";
 

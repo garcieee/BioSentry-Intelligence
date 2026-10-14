@@ -21,6 +21,7 @@ export const deleteNote = provider.deleteNote;
 export const listAllPatients = provider.listAllPatients;
 export const admitPatient = provider.admitPatient;
 export const enterLabResults = provider.enterLabResults;
+export const recordVitals = provider.recordVitals;
 export const extractLabsFromFile = provider.extractLabsFromFile;
 export const extractPatientFromFile = provider.extractPatientFromFile;
 

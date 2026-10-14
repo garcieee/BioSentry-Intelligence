@@ -1,8 +1,9 @@
-"""In-memory repository seeded from the committed synthetic dataset (CP6).
+"""In-memory repository seeded from the committed synthetic dataset.
 
-A patient is either ranked (a full ScoreRow with vitals, a history and a breakdown) or NOT
-RANKED (an AbstainedRow). Scores, ranks and reasons are not stored: the services recompute
-them from the vitals on every read, so a write that changes an input changes the result.
+Every patient is one `UnscoredPatient`: demographics, vitals, series, labs and the demo
+Tier B/C content. Scores, ranks, reasons and the ranked/NOT RANKED split are not stored: the
+services compute them from the vitals on every read with the real news2() and arbiter, so a
+recorded value re-ranks the patient immediately.
 """
 
 import json
@@ -12,42 +13,18 @@ from datetime import datetime
 from pathlib import Path
 
 from biosentry.schemas import (
-    AbstainedRow,
-    BloodPressure,
     ClinicalNote,
-    LabPanel,
     ScoreRow,
-    TierBreakdown,
     TierStatus,
+    UnscoredPatient,
     VitalHistoryFull,
 )
-from biosentry.schemas.common import Acvpu
 
 
 @dataclass(slots=True)
 class PatientRecord:
     id: str
-    ranked: ScoreRow | None = None
-    abstained: AbstainedRow | None = None
-    history: VitalHistoryFull | None = None
-    breakdown: TierBreakdown | None = None
-    labs: LabPanel | None = None  # None until a lab is entered (abstained patients)
-    admitted_bp: BloodPressure | None = None  # nurse-entered at admission, structured once
-    admitted_acvpu: Acvpu | None = None
-
-    @property
-    def name(self) -> str:
-        source = self.ranked or self.abstained
-        if source is None:
-            raise ValueError(f"{self.id} has no row")
-        return source.name
-
-    @property
-    def bed(self) -> str:
-        source = self.ranked or self.abstained
-        if source is None:
-            raise ValueError(f"{self.id} has no row")
-        return source.bed
+    state: UnscoredPatient
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +50,10 @@ class MemoryStore:
     def knows_clinician(self, clinician_id: str) -> bool:
         return clinician_id in self.clinicians
 
+    def role_of(self, clinician_id: str) -> str | None:
+        entry = self.clinicians.get(clinician_id)
+        return entry.role if entry is not None else None
+
     def assigned(self, clinician_id: str) -> frozenset[str]:
         """The patients under this clinician's care. Unknown id: nobody (fails closed)."""
         entry = self.clinicians.get(clinician_id)
@@ -97,22 +78,41 @@ class MemoryStore:
             )
 
 
+def _state_from_row(row: ScoreRow, history: VitalHistoryFull) -> UnscoredPatient:
+    return UnscoredPatient(
+        id=row.id,
+        name=row.name,
+        age=row.age,
+        sex=row.sex,
+        bed=row.bed,
+        admitting_context=row.admitting_context,
+        trend=row.trend,
+        mechanism=row.mechanism,
+        supporting=row.supporting,
+        vitals=row.vitals,
+        vital_trends=row.vital_trends,
+        vital_history=history,
+        labs=row.labs,
+        tier_b=row.tier_b,
+        tier_c=row.tier_c,
+        signal_quality=row.signal_quality,
+        last_update_s=row.last_update_s,
+        synthetic=row.synthetic,
+    )
+
+
 def load(path: Path) -> MemoryStore:
     raw = json.loads(path.read_text(encoding="utf-8"))
     patients: dict[str, PatientRecord] = {}
+    tier_status: list[TierStatus] = []
     for item in raw["ranked"]:
         row = ScoreRow.model_validate(item)
-        detail = raw["details"][row.id]
-        patients[row.id] = PatientRecord(
-            id=row.id,
-            ranked=row,
-            history=VitalHistoryFull.model_validate(detail["vital_history"]),
-            breakdown=TierBreakdown.model_validate(detail["tier_breakdown"]),
-            labs=row.labs,
-        )
-    for item in raw["abstained"]:
-        abstained = AbstainedRow.model_validate(item)
-        patients[abstained.id] = PatientRecord(id=abstained.id, abstained=abstained)
+        history = VitalHistoryFull.model_validate(raw["details"][row.id]["vital_history"])
+        patients[row.id] = PatientRecord(row.id, _state_from_row(row, history))
+        tier_status = tier_status or list(row.tier_status)
+    for item in raw["unscored"]:
+        state = UnscoredPatient.model_validate(item)
+        patients[state.id] = PatientRecord(state.id, state)
 
     notes: dict[str, list[ClinicalNote]] = {}
     for item in raw["notes"]:
@@ -124,8 +124,6 @@ def load(path: Path) -> MemoryStore:
         cid: ClinicianEntry(cid, entry["role"], frozenset(entry["patients"]))
         for cid, entry in raw["clinicians"].items()
     }
-    first = next(iter(patients.values())).ranked
-    tier_status = list(first.tier_status) if first is not None else []
     return MemoryStore(
         ward=raw["ward"],
         as_of=datetime.fromisoformat(raw["as_of"]),

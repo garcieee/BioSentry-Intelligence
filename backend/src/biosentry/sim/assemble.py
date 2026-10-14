@@ -44,6 +44,7 @@ from biosentry.schemas import (
     TierCData,
     TierStatus,
     Trend,
+    UnscoredPatient,
     VitalHistory,
     VitalHistoryFull,
     Vitals,
@@ -88,6 +89,7 @@ class Dataset:
     notes: tuple[ClinicalNote, ...]
     labels: dict[str, Label]
     clinicians: dict[str, tuple[str, tuple[str, ...]]]  # id -> (role, patient ids)
+    unscored: tuple[UnscoredPatient, ...]  # the state behind the NOT RANKED rows
 
     def to_json_dict(self) -> dict[str, Any]:
         return {
@@ -97,6 +99,7 @@ class Dataset:
             "synthetic": True,
             "ranked": [r.model_dump(mode="json") for r in self.ranked],
             "abstained": [a.model_dump(mode="json") for a in self.abstained],
+            "unscored": [u.model_dump(mode="json") for u in self.unscored],
             "details": {
                 pid: {
                     "vital_history": history.model_dump(mode="json"),
@@ -296,6 +299,50 @@ def _finding(
     )
 
 
+def _empty_series() -> tuple[VitalTrends, VitalHistoryFull]:
+    """No patch, no signal: every bin is a gap (null), never zero."""
+    trends = VitalTrends(
+        heart_rate=[None] * SPARK_BINS,
+        respiratory_rate=[None] * SPARK_BINS,
+        spo2=[None] * SPARK_BINS,
+        temperature=[None] * SPARK_BINS,
+    )
+
+    def gaps() -> list[VitalHistory]:
+        return [VitalHistory(time=_bin_time(b), value=None) for b in range(BINS)]
+
+    return trends, VitalHistoryFull(heart_rate=gaps(), respiratory_rate=gaps(), spo2=gaps())
+
+
+def _unscored(
+    scn: Scenario, signals: PatientSignals | None, vitals: Vitals, inputs: News2Inputs
+) -> UnscoredPatient:
+    if signals is None:
+        trends, history = _empty_series()
+    else:
+        trends, history = _trends(signals), _history(signals)
+    return UnscoredPatient(
+        id=scn.id,
+        name=scn.name,
+        age=scn.age,
+        sex=scn.sex,
+        bed=scn.bed,
+        admitting_context=scn.admitting_context,
+        trend=_trend(signals, inputs),
+        mechanism="Not ranked until every NEWS2 input is recorded.",
+        supporting=_supporting(scn, vitals),
+        vitals=vitals,
+        vital_trends=trends,
+        vital_history=history,
+        labs=_labs(scn),
+        tier_b=None,
+        tier_c=None,
+        signal_quality=signals.signal_quality if signals is not None else None,
+        last_update_s=signals.last_update_s if signals is not None else None,
+        synthetic=True,
+    )
+
+
 def _supporting(scn: Scenario, vitals: Vitals) -> str:
     parts: list[str] = []
     if isinstance(vitals.heart_rate.data, NumberPresent):
@@ -321,6 +368,7 @@ def build(seed: int = DEFAULT_SEED) -> Dataset:
     rows: dict[str, ScoreRow] = {}
     details: dict[str, tuple[VitalHistoryFull, TierBreakdown]] = {}
     abstained_meta: dict[str, Scenario] = {}
+    unscored: list[UnscoredPatient] = []
     notes: list[ClinicalNote] = []
     labels: dict[str, Label] = {}
 
@@ -351,6 +399,7 @@ def build(seed: int = DEFAULT_SEED) -> Dataset:
                     f"{scn.id} was scripted to score {scn.expected_news2} but abstained"
                 )
             abstained_meta[scn.id] = scn
+            unscored.append(_unscored(scn, signals, vitals, inputs))
             continue
         if not isinstance(result, News2Score):  # a Ranked decision always carries a score
             raise ValueError(f"{scn.id}: ranked without a NEWS2 score")
@@ -441,6 +490,7 @@ def build(seed: int = DEFAULT_SEED) -> Dataset:
         notes=tuple(sorted(notes, key=lambda n: n.id)),
         labels=labels,
         clinicians={c.id: (c.role, c.patients) for c in CLINICIANS},
+        unscored=tuple(unscored),
     )
 
 

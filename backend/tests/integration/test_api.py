@@ -7,13 +7,21 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-from biosentry.api.app import Context, create_app
+from biosentry.api.app import WRITE_ACTIONS, Context, create_app
 from biosentry.core.config import DEFAULT_DATASET, Settings
 from biosentry.domain.arbiter import arbitrate, rank_ward
 from biosentry.domain.scoring.tier_a import inputs_from_vitals, score_news2
-from biosentry.schemas import AbstainedRow, PatientDetail, ScoreRow, WardResponse
+from biosentry.schemas import (
+    AbstainedRow,
+    PatientDetail,
+    ScoreRow,
+    VitalsRecorded,
+    WardResponse,
+)
+from biosentry.schemas.common import BloodPressurePresent
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
 REPO = Path(__file__).resolve().parents[3]
@@ -338,10 +346,8 @@ def test_a_ranked_patient_who_loses_an_input_becomes_not_ranked(
 ) -> None:
     # The score is recomputed on every read: remove an input and the patient abstains.
     _, client = app_and_client
-    store = ctx(app_and_client).store
-    record = store.patients["p-002"]
-    assert record.ranked is not None
-    vitals = record.ranked.vitals
+    record = ctx(app_and_client).store.patients["p-002"]
+    vitals = record.state.vitals
     absent = {
         "data": {"present": False, "reason": "not_measured"},
         "provenance": vitals.blood_pressure.provenance.model_dump(),
@@ -349,7 +355,7 @@ def test_a_ranked_patient_who_loses_an_input_becomes_not_ranked(
     broken = vitals.model_copy(
         update={"blood_pressure": type(vitals.blood_pressure).model_validate(absent)}
     )
-    record.ranked = record.ranked.model_copy(update={"vitals": broken})
+    record.state = record.state.model_copy(update={"vitals": broken})
     ward = WardResponse.model_validate(
         client.get("/wards/W4/rows", headers=as_("rn-manalo")).json()
     )
@@ -482,37 +488,67 @@ def test_admission_splits_the_blood_pressure_once(app_and_client: tuple[Any, Tes
     assert response.status_code == 201
     row = AbstainedRow.model_validate(response.json())
     assert row.id == "p-013"
-    assert (row.reason, row.name, row.synthetic) == (
-        "Patch not yet applied",
-        "Dela Cruz, Juan",
-        True,
-    )
+    assert (row.name, row.synthetic) == ("Dela Cruz, Juan", True)
+    # NOT RANKED because every missing input is named by the arbiter, not because of a script.
+    assert row.reason.startswith("No device data")
+    assert "Apply the patch" in row.instruction
     record = ctx(app_and_client).store.patients[row.id]
-    assert record.admitted_bp is not None
-    assert (record.admitted_bp.systolic, record.admitted_bp.diastolic) == (120, 80)
+    stored = record.state.vitals.blood_pressure.data
+    assert isinstance(stored, BloodPressurePresent)
+    assert (stored.value.systolic, stored.value.diastolic) == (120, 80)
     mine = client.get("/wards/W4/rows", headers=as_("rn-delacruz")).json()
     assert row.id in {a["id"] for a in mine["abstained"]}
     other = client.get("/wards/W4/rows", headers=as_("rn-reyes")).json()
     assert row.id not in {a["id"] for a in other["abstained"]}
 
 
+def _admission(bp: str) -> dict[str, Any]:
+    return {
+        "lastName": "X", "firstName": "Y", "dateOfBirth": "1970-01-01", "age": 50, "sex": "F",
+        "bed": "1A", "admissionRoute": "transfer", "chiefComplaint": "c",
+        "admittingContext": "a", "attendingPhysician": "p", "initialBp": bp,
+    }  # fmt: skip
+
+
 @pytest.mark.parametrize(
     "bp",
-    ["20/80", "120/130", "400/80", "120/10", "120/120", "12/8", "abc", "120-80", "120/80/1"],
+    [
+        "19/10",  # systolic below the floor
+        "120/09",  # diastolic below the floor
+        "20/80",  # diastolic not below systolic
+        "120/130",
+        "120/120",
+        "301/80",  # systolic above the ceiling
+        "400/80",
+        "300/201",  # diastolic above the ceiling
+        "12/8",
+        "abc",
+        "120-80",
+        "120/80/1",
+    ],
 )
 def test_an_implausible_or_malformed_admission_blood_pressure_is_rejected_not_clamped(
     app_and_client: tuple[Any, TestClient], bp: str
 ) -> None:
     _, client = app_and_client
-    form = {
-        "lastName": "X", "firstName": "Y", "dateOfBirth": "1970-01-01", "age": 50, "sex": "F",
-        "bed": "1A", "admissionRoute": "transfer", "chiefComplaint": "c",
-        "admittingContext": "a", "attendingPhysician": "p", "initialBp": bp,
-    }  # fmt: skip
     before = len(ctx(app_and_client).store.patients)
-    response = client.post("/patients", headers=as_("rn-delacruz"), json=form)
+    response = client.post("/patients", headers=as_("rn-delacruz"), json=_admission(bp))
     assert response.status_code == 422
     assert len(ctx(app_and_client).store.patients) == before
+
+
+@pytest.mark.parametrize("bp", ["20/10", "45/20", "300/200"])
+def test_a_critical_but_possible_admission_blood_pressure_is_accepted_as_typed(
+    app_and_client: tuple[Any, TestClient], bp: str
+) -> None:
+    _, client = app_and_client
+    response = client.post("/patients", headers=as_("rn-delacruz"), json=_admission(bp))
+    assert response.status_code == 201
+    stored = ctx(app_and_client).store.patients[response.json()["id"]].state
+    data = stored.vitals.blood_pressure.data
+    assert isinstance(data, BloodPressurePresent)
+    systolic, diastolic = (int(n) for n in bp.split("/"))
+    assert (data.value.systolic, data.value.diastolic) == (systolic, diastolic)
 
 
 def test_extraction_is_not_implemented_and_says_so(client: TestClient) -> None:
@@ -521,6 +557,412 @@ def test_extraction_is_not_implemented_and_says_so(client: TestClient) -> None:
         assert response.status_code == 501
         assert "not implemented" in response.json()["detail"]
     assert client.post("/extract/labs").status_code == 401
+
+
+# --- Nurse-recorded vitals: the way out of NOT RANKED ----------------------------------------
+
+
+def _ward(client: TestClient, who: str) -> WardResponse:
+    return WardResponse.model_validate(client.get("/wards/W4/rows", headers=as_(who)).json())
+
+
+def test_recording_the_missing_blood_pressure_ranks_the_patient_at_once(client: TestClient) -> None:
+    before = _ward(client, "rn-delacruz")
+    assert "p-004" in {a.id for a in before.abstained}
+    assert next(a for a in before.abstained if a.id == "p-004").reason == "Systolic BP missing"
+
+    response = client.post(
+        "/patients/p-004/vitals",
+        headers=as_("rn-delacruz"),
+        json={"systolic": 130, "diastolic": 84},
+    )
+    assert response.status_code == 200
+    recorded = VitalsRecorded.model_validate(response.json())
+    assert recorded.ranked is True
+    assert recorded.score == 0  # HR 88, RR 18, SpO2 96, 36.8 C, A, air, SBP 130
+    assert recorded.rank is not None
+    assert recorded.not_ranked_reason is None
+    # The echo carries what was stored, with nurse provenance.
+    echo = response.json()["blood_pressure"]
+    assert echo["data"] == {"present": True, "value": {"systolic": 130, "diastolic": 84}}
+    assert echo["provenance"]["source"] == "nurse"
+    assert echo["provenance"]["synthetic"] is True
+    assert response.json()["consciousness"] is None  # not recorded, not echoed
+
+    after = _ward(client, "rn-delacruz")
+    assert "p-004" in {r.id for r in after.ranked}
+    assert "p-004" not in {a.id for a in after.abstained}
+    assert next(r for r in after.ranked if r.id == "p-004").rank == recorded.rank
+    assert [r.rank for r in after.ranked] == list(range(1, len(after.ranked) + 1))
+    assert client.get("/patients/p-004", headers=as_("rn-delacruz")).status_code == 200
+
+
+def test_a_recorded_value_re_ranks_through_the_real_arbiter(client: TestClient) -> None:
+    h = as_("rn-manalo")
+    before = next(r for r in _ward(client, "rn-manalo").ranked if r.id == "p-012")
+    assert before.score == 0
+    assert before.escalation_reasons == []
+    response = client.post("/patients/p-012/vitals", headers=h, json={"acvpu": "U"})
+    recorded = VitalsRecorded.model_validate(response.json())
+    assert (recorded.ranked, recorded.score) == (True, 3)  # not Alert scores 3
+    after = next(r for r in _ward(client, "rn-manalo").ranked if r.id == "p-012")
+    assert after.rank < before.rank
+    assert [e.text for e in after.escalation_reasons] == [
+        "Single parameter at 3: level of consciousness"
+    ]
+
+
+def test_a_patient_without_a_patch_stays_not_ranked_whatever_the_nurse_records(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/patients/p-005/vitals",
+        headers=as_("rn-reyes"),
+        json={"systolic": 118, "diastolic": 74, "acvpu": "A", "on_oxygen": False, "spo2_scale": 1},
+    )
+    recorded = VitalsRecorded.model_validate(response.json())
+    assert recorded.ranked is False
+    assert recorded.rank is None
+    assert recorded.score is None
+    assert recorded.not_ranked_reason == "No device data"
+    assert recorded.not_ranked_instruction == "Apply the patch and verify the signal"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"systolic": 130},
+        {"diastolic": 80},
+        {"systolic": 0, "diastolic": 0},
+        {"systolic": -5, "diastolic": 80},
+        {"systolic": 19, "diastolic": 9},  # both just below the floor
+        {"systolic": 19, "diastolic": 10},
+        {"systolic": 20, "diastolic": 9},
+        {"systolic": 20, "diastolic": 20},  # diastolic must be below systolic
+        {"systolic": 20, "diastolic": 80},
+        {"systolic": 301, "diastolic": 80},
+        {"systolic": 400, "diastolic": 80},
+        {"systolic": 300, "diastolic": 201},
+        {"systolic": 120, "diastolic": 130},
+        {"systolic": 120.5, "diastolic": 80},
+        {"acvpu": "X"},
+        {"spo2_scale": 3},
+        {"spo2_scale": "1"},
+        {"spo2_scale": True},
+        {"on_oxygen": "yes"},
+    ],
+    ids=lambda b: json.dumps(b),
+)
+def test_an_implausible_or_incomplete_record_is_rejected_and_stores_nothing(
+    app_and_client: tuple[Any, TestClient], body: dict[str, Any]
+) -> None:
+    _, client = app_and_client
+    before = _ward(client, "rn-delacruz").model_dump()
+    response = client.post("/patients/p-004/vitals", headers=as_("rn-delacruz"), json=body)
+    assert response.status_code == 422
+    assert _ward(client, "rn-delacruz").model_dump() == before
+    state = ctx(app_and_client).store.patients["p-004"].state
+    assert state.vitals.blood_pressure.data.present is False
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"heart_rate": 70},
+        {"respiratory_rate": 16},
+        {"spo2": 97},
+        {"temperature": 37.0},
+        {"entered_by": "rn-delacruz"},
+        {"unknown_key": 1},
+    ],
+    ids=lambda e: next(iter(e)),
+)
+def test_a_field_the_nurse_cannot_record_is_refused_and_the_valid_part_is_not_stored(
+    app_and_client: tuple[Any, TestClient], extra: dict[str, Any]
+) -> None:
+    """Device-sourced values and unknown keys are 422 even beside a perfectly valid BP."""
+    _, client = app_and_client
+    before = _ward(client, "rn-delacruz").model_dump()
+    body = {"systolic": 130, "diastolic": 84, **extra}
+    response = client.post("/patients/p-004/vitals", headers=as_("rn-delacruz"), json=body)
+    assert response.status_code == 422
+    assert _ward(client, "rn-delacruz").model_dump() == before
+    state = ctx(app_and_client).store.patients["p-004"].state
+    assert state.vitals.blood_pressure.data.present is False
+
+
+@pytest.mark.parametrize(("systolic", "diastolic"), [(20, 10), (45, 20), (300, 200)])
+def test_a_critical_reading_is_recordable_down_to_the_physical_floor(
+    client: TestClient, systolic: int, diastolic: int
+) -> None:
+    """Refusing a true 45/20 would leave the patient silently NOT RANKED: record it, escalate."""
+    h = as_("rn-delacruz")
+    response = client.post(
+        "/patients/p-004/vitals", headers=h, json={"systolic": systolic, "diastolic": diastolic}
+    )
+    assert response.status_code == 200
+    recorded = VitalsRecorded.model_validate(response.json())
+    assert recorded.blood_pressure is not None
+    assert recorded.blood_pressure.provenance.source == "nurse"
+    assert recorded.ranked is True
+    assert recorded.score == 3  # SBP <= 90 and SBP >= 220 each score 3
+    row = next(r for r in _ward(client, "rn-delacruz").ranked if r.id == "p-004")
+    assert [e.text for e in row.escalation_reasons] == ["Single parameter at 3: systolic BP"]
+    assert client.get("/patients/p-004", headers=h).status_code == 200
+
+
+def test_recording_for_a_patient_that_is_not_yours_is_not_found(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    _, client = app_and_client
+    audit = ctx(app_and_client).audit
+    h = as_("md-aquino")
+    body = {"systolic": 120, "diastolic": 80}
+    refused = client.post("/patients/p-004/vitals", headers=h, json=body)
+    missing = client.post("/patients/p-999/vitals", headers=h, json=body)
+    assert (refused.status_code, refused.json()) == (missing.status_code, missing.json())
+    assert refused.status_code == 404
+    first, second = audit.for_clinician("md-aquino")
+    assert (first.action, first.outcome) == (second.action, second.outcome)
+    assert (first.action, first.outcome) == ("record_vitals", "not_found")
+
+
+def test_recorded_values_never_reach_the_audit_trail(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    _, client = app_and_client
+    client.post(
+        "/patients/p-004/vitals",
+        headers=as_("rn-delacruz"),
+        json={"systolic": 131, "diastolic": 83},
+    )
+    client.post(
+        "/patients/p-004/vitals", headers=as_("rn-delacruz"), json={"systolic": 20, "diastolic": 80}
+    )
+    records = ctx(app_and_client).audit.for_clinician("rn-delacruz")
+    assert [(r.action, r.outcome) for r in records] == [
+        ("record_vitals", "ok"),
+        ("record_vitals", "rejected"),
+    ]
+    text = repr(records) + client.get("/audit", headers=as_("rn-delacruz")).text
+    assert "131" not in text
+    assert "83" not in text
+
+
+def test_a_newly_admitted_patient_can_be_recorded_but_stays_not_ranked_without_a_patch(
+    client: TestClient,
+) -> None:
+    form = {
+        "lastName": "Reyes", "firstName": "Ana", "dateOfBirth": "1980-01-01", "age": 45,
+        "sex": "F", "bed": "9Z", "admissionRoute": "direct_admission", "chiefComplaint": "c",
+        "admittingContext": "ctx", "attendingPhysician": "p",
+    }  # fmt: skip
+    admitted = client.post("/patients", headers=as_("rn-delacruz"), json=form).json()
+    response = client.post(
+        f"/patients/{admitted['id']}/vitals",
+        headers=as_("rn-delacruz"),
+        json={"systolic": 120, "diastolic": 80, "acvpu": "A", "on_oxygen": False, "spo2_scale": 1},
+    )
+    recorded = VitalsRecorded.model_validate(response.json())
+    assert recorded.ranked is False
+    assert recorded.not_ranked_reason == "No device data"
+
+
+# --- A rejected write is audited, and identity still comes first ---------------------------
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"systolic": 0, "diastolic": 0},
+        {"systolic": "9187x", "diastolic": 80},  # wrong type
+        {"systolic": 130},  # half a pair
+        {"acvpu": "ZZZ-leak"},
+        {"systolic": 130, "diastolic": 84, "heart_rate": 70},
+    ],
+    ids=lambda b: json.dumps(b),
+)
+def test_a_rejected_record_leaves_exactly_one_audit_row_and_no_values(
+    app_and_client: tuple[Any, TestClient], body: dict[str, Any]
+) -> None:
+    _, client = app_and_client
+    audit = ctx(app_and_client).audit
+    response = client.post("/patients/p-004/vitals", headers=as_("rn-delacruz"), json=body)
+    assert response.status_code == 422
+    rows = audit.records()
+    assert [(r.clinician_id, r.role, r.action, r.resource, r.outcome) for r in rows] == [
+        ("rn-delacruz", "rn", "record_vitals", "p-004", "rejected")
+    ]
+    leaked = repr(rows) + client.get("/audit", headers=as_("rn-delacruz")).text
+    for value in ("9187x", "ZZZ-leak", "heart_rate"):
+        assert value not in leaked
+
+
+def test_a_body_that_is_not_json_is_audited_once_identified_and_refused_before_that(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    _, client = app_and_client
+    audit = ctx(app_and_client).audit
+    json_header = {"Content-Type": "application/json"}
+    identified = {**as_("rn-delacruz"), **json_header}
+    refused = client.post("/patients/p-004/vitals", content=b"{not json", headers=identified)
+    assert refused.status_code == 422
+    assert [(r.action, r.outcome) for r in audit.for_clinician("rn-delacruz")] == [
+        ("record_vitals", "rejected")
+    ]
+    anonymous = client.post("/patients/p-004/vitals", content=b"{not json", headers=json_header)
+    assert anonymous.status_code == 401
+    assert (audit.records()[-1].clinician_id, audit.records()[-1].action) == (None, "authenticate")
+
+
+@pytest.mark.parametrize(
+    ("headers", "status"),
+    [
+        ({}, 401),
+        ({"Authorization": "Basic abc"}, 401),
+        ({"Authorization": "Bearer"}, 401),
+        ({"Authorization": "Bearer rn-nobody"}, 403),
+    ],
+    ids=["missing", "wrong-scheme", "empty", "unknown"],
+)
+def test_a_bad_body_without_identity_is_refused_on_identity_not_on_validation(
+    app_and_client: tuple[Any, TestClient], headers: dict[str, str], status: int
+) -> None:
+    _, client = app_and_client
+    response = client.post("/patients/p-004/vitals", headers=headers, json={"systolic": "9187x"})
+    assert response.status_code == status
+    assert "9187x" not in response.text  # nothing about the body is told to an unidentified caller
+    rows = ctx(app_and_client).audit.records()
+    assert [(r.clinician_id, r.role, r.action, r.resource, r.outcome) for r in rows] == [
+        (None, None, "authenticate", "-", "denied")
+    ]
+
+
+def test_a_bad_body_is_answered_the_same_for_not_yours_and_nonexistent(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    _, client = app_and_client
+    h = as_("md-aquino")
+    refused = client.post("/patients/p-004/vitals", headers=h, json={"systolic": "x"})
+    missing = client.post("/patients/p-999/vitals", headers=h, json={"systolic": "x"})
+    assert refused.status_code == missing.status_code == 422
+    assert refused.json() == missing.json()
+    first, second = ctx(app_and_client).audit.for_clinician("md-aquino")
+    assert (first.action, first.outcome) == (second.action, second.outcome)
+    assert (first.action, first.outcome) == ("record_vitals", "rejected")
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "action", "body"),
+    [
+        ("POST", "/patients", "admit_patient", {"lastName": "X"}),
+        ("POST", "/patients/p-001/notes", "add_note", {"author": "a"}),
+        ("POST", "/patients/p-001/labs", "enter_labs", {"potassium": "high"}),
+        ("POST", "/patients/p-004/vitals", "record_vitals", {}),
+    ],
+)
+def test_every_write_route_audits_a_body_that_fails_validation(
+    app_and_client: tuple[Any, TestClient], method: str, path: str, action: str, body: Any
+) -> None:
+    _, client = app_and_client
+    response = client.request(method, path, headers=as_("rn-manalo"), json=body)
+    assert response.status_code == 422
+    rows = ctx(app_and_client).audit.for_clinician("rn-manalo")
+    assert [(r.action, r.outcome) for r in rows] == [(action, "rejected")]
+
+
+def test_audit_rows_record_the_role_held_when_acting(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    _, client = app_and_client
+    client.get("/patients", headers=as_("rn-manalo"))
+    client.get("/patients", headers=as_("md-aquino"))
+    client.get("/patients")
+    rows = ctx(app_and_client).audit.records()
+    assert [(r.clinician_id, r.role) for r in rows] == [
+        ("rn-manalo", "charge_rn"),
+        ("md-aquino", "md"),
+        (None, None),
+    ]
+
+
+# --- Every route demands identity first ---------------------------------------------------
+
+PUBLIC_ROUTES = {("GET", "/healthz")}
+VALID_BODIES: dict[tuple[str, str], dict[str, Any]] = {
+    ("POST", "/patients"): _admission("120/80"),
+    ("POST", "/patients/{patient_id}/notes"): {"author": "a", "role": "RN", "content": "c"},
+    ("POST", "/patients/{patient_id}/labs"): {"potassium": 4.0},
+    ("POST", "/patients/{patient_id}/vitals"): {"systolic": 120, "diastolic": 80},
+}
+PATH_VALUES = {"patient_id": "p-001", "note_id": "n-001", "ward": "W4"}
+
+
+def _route_table(app: Any) -> list[tuple[str, str]]:
+    table: list[tuple[str, str]] = []
+    for route in app.routes:
+        methods = getattr(route, "methods", None)
+        path = getattr(route, "path", None)
+        if methods is None or path is None:  # a mount or similar: not auditable by this test
+            raise AssertionError(f"route of an unknown kind: {route!r}")
+        table.extend((m, path) for m in sorted(methods - {"HEAD", "OPTIONS"}))
+    return table
+
+
+def test_every_route_but_healthz_demands_identity_before_anything_else(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    """A future route cannot ship unauthenticated: this walks the app's own route table."""
+    app, client = app_and_client
+    c = ctx(app_and_client)
+    table = [r for r in _route_table(app) if r not in PUBLIC_ROUTES]
+    assert len(table) >= 12  # the walk is not vacuous
+    states = {pid: rec.state for pid, rec in c.store.patients.items()}
+    notes = {pid: list(found) for pid, found in c.store.notes.items()}
+    cases = [
+        ({}, 401),
+        ({"Authorization": "Basic abc"}, 401),
+        ({"Authorization": "Bearer"}, 401),
+        ({"Authorization": "Bearer rn-nobody"}, 403),
+    ]
+    attempts = 0
+    for method, template in table:
+        url = template.format(**PATH_VALUES)
+        for headers, expected in cases:
+            response = client.request(
+                method, url, headers=headers, json=VALID_BODIES.get((method, template))
+            )
+            attempts += 1
+            assert response.status_code == expected, (method, template, headers)
+            assert "Santos" not in response.text
+    assert {pid: rec.state for pid, rec in c.store.patients.items()} == states
+    assert {pid: list(found) for pid, found in c.store.notes.items()} == notes
+    rows = c.audit.records()
+    assert len(rows) == attempts
+    assert {(r.clinician_id, r.action, r.outcome) for r in rows} == {
+        (None, "authenticate", "denied")
+    }
+
+
+def test_every_route_that_takes_a_body_has_an_audited_rejection(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    app, _ = app_and_client
+    with_body = {
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, APIRoute) and route.body_field is not None
+        for method in route.methods or ()
+    }
+    assert with_body == set(WRITE_ACTIONS)
+
+
+def test_the_service_serves_no_documentation_to_anyone(client: TestClient) -> None:
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path).status_code == 404
+        assert client.get(path, headers=as_("rn-manalo")).status_code == 404
 
 
 # --- The routes the frontend calls --------------------------------------------------------

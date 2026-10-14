@@ -236,6 +236,28 @@ export interface components {
             readonly value: number;
         };
         /**
+         * NurseVitalsInput
+         * @description Nurse-entered NEWS2 inputs (POST /patients/{id}/vitals): any subset, at least one.
+         *
+         *     Blood pressure is a pair. Omitted means not entered (the stored value is left alone);
+         *     there is no default and nothing is clamped: an impossible value is rejected. Device-sourced
+         *     values (heart rate, respiratory rate, SpO2, temperature) are not accepted here. A stored
+         *     value carries source `nurse`, a manual clinician entry; the audit row for the write
+         *     records the clinician's id and role.
+         */
+        readonly NurseVitalsInput: {
+            /** @default null */
+            readonly acvpu?: components["schemas"]["Acvpu"] | null;
+            /** @default null */
+            readonly diastolic?: number | null;
+            /** @default null */
+            readonly on_oxygen?: boolean | null;
+            /** @default null */
+            readonly spo2_scale?: components["schemas"]["Spo2Scale"] | null;
+            /** @default null */
+            readonly systolic?: number | null;
+        };
+        /**
          * PartialAdmitPatientInput
          * @description AdmitPatientInput with every field optional (extraction results).
          */
@@ -393,6 +415,11 @@ export interface components {
         };
         /**
          * ProvenanceSource
+         * @description Where a value came from.
+         *
+         *     `nurse` means a manual clinician entry: a person typed it, whatever their role. Who entered
+         *     it is not on the measurement; the audit log holds the clinician id and role for the write
+         *     (an `entered_by` field is a backlog item).
          * @enum {string}
          */
         readonly ProvenanceSource: "device" | "nurse" | "lab" | "derived" | "model" | "reference";
@@ -537,6 +564,34 @@ export interface components {
          */
         readonly Trend: "rising" | "falling" | "stable" | "insufficient";
         /**
+         * UnscoredPatient
+         * @description Everything known about a patient before any score exists.
+         *
+         *     This is the state behind both a ranked row and a NOT RANKED row: scores, ranks and
+         *     reasons are computed from it on read (never stored), so a recorded value re-ranks the
+         *     patient. `signal_quality` and `last_update_s` are null for a patient with no patch.
+         */
+        readonly UnscoredPatient: {
+            readonly admitting_context: string;
+            readonly age: number | null;
+            readonly bed: string;
+            readonly id: string;
+            readonly labs: components["schemas"]["LabPanel"];
+            readonly last_update_s: number | null;
+            readonly mechanism: string;
+            readonly name: string;
+            readonly sex: string | null;
+            readonly signal_quality: number | null;
+            readonly supporting: string;
+            readonly synthetic: boolean;
+            readonly tier_b: components["schemas"]["TierBData"] | null;
+            readonly tier_c: components["schemas"]["TierCData"] | null;
+            readonly trend: components["schemas"]["Trend"];
+            readonly vital_history: components["schemas"]["VitalHistoryFull"];
+            readonly vital_trends: components["schemas"]["VitalTrends"];
+            readonly vitals: components["schemas"]["Vitals"];
+        };
+        /**
          * VitalHistory
          * @description One 15-minute bin of a vital. `value` is null for a gap: never zero, never filled (I1).
          */
@@ -561,6 +616,22 @@ export interface components {
             readonly spo2_scale: components["schemas"]["Spo2ScaleMeasurement"];
             readonly supplemental_o2: components["schemas"]["FlagMeasurement"];
             readonly temperature: components["schemas"]["NumberMeasurement"];
+        };
+        /**
+         * VitalsRecorded
+         * @description What was stored (the echo, with provenance) and where the patient stands now.
+         */
+        readonly VitalsRecorded: {
+            readonly blood_pressure: components["schemas"]["BloodPressureMeasurement"] | null;
+            readonly consciousness: components["schemas"]["AcvpuMeasurement"] | null;
+            readonly not_ranked_instruction: string | null;
+            readonly not_ranked_reason: string | null;
+            readonly patient_id: string;
+            readonly rank: number | null;
+            readonly ranked: boolean;
+            readonly score: number | null;
+            readonly spo2_scale: components["schemas"]["Spo2ScaleMeasurement"] | null;
+            readonly supplemental_o2: components["schemas"]["FlagMeasurement"] | null;
         };
         /**
          * VitalTrends
@@ -613,6 +684,7 @@ export type MeasurementAbsent = components['schemas']['MeasurementAbsent'];
 export type NewNote = components['schemas']['NewNote'];
 export type NumberMeasurement = components['schemas']['NumberMeasurement'];
 export type NumberPresent = components['schemas']['NumberPresent'];
+export type NurseVitalsInput = components['schemas']['NurseVitalsInput'];
 export type PartialAdmitPatientInput = components['schemas']['PartialAdmitPatientInput'];
 export type PartialLabInput = components['schemas']['PartialLabInput'];
 export type PatientDetail = components['schemas']['PatientDetail'];
@@ -638,9 +710,11 @@ export type TierCData = components['schemas']['TierCData'];
 export type TierCInput = components['schemas']['TierCInput'];
 export type TierStatus = components['schemas']['TierStatus'];
 export type Trend = components['schemas']['Trend'];
+export type UnscoredPatient = components['schemas']['UnscoredPatient'];
 export type VitalHistory = components['schemas']['VitalHistory'];
 export type VitalHistoryFull = components['schemas']['VitalHistoryFull'];
 export type Vitals = components['schemas']['Vitals'];
+export type VitalsRecorded = components['schemas']['VitalsRecorded'];
 export type VitalTrends = components['schemas']['VitalTrends'];
 export type WardResponse = components['schemas']['WardResponse'];
 export type $defs = Record<string, never>;

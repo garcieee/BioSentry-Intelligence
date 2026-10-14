@@ -1,9 +1,13 @@
 """The HTTP API: the routes the frontend's http provider calls (frontend/src/api/providers/http.ts).
 
 Identity is a bearer token that names a clinician (the CP6 auth stub). Missing or malformed
-credentials get 401; a token that names nobody gets 403 and nothing is served. Everything else
-is scoped to the caller's patients on the server, on every call, and a patient who does not
-exist and one who is not yours get the same 404. Responses are `Cache-Control: no-store`.
+credentials get 401; a token that names nobody gets 403 and nothing is served. Identity comes
+first on every route, including for a body that fails validation. Everything else is scoped
+to the caller's patients on the server, on every call, and a patient who does not exist and
+one who is not yours get the same 404. A write whose body fails validation leaves a
+`rejected` audit row (ids only, no values). Responses are `Cache-Control: no-store`. The
+service serves nothing unauthenticated except /healthz: no docs or schema routes (the
+contract is contracts/openapi.json).
 """
 
 import logging
@@ -11,6 +15,8 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -24,15 +30,26 @@ from biosentry.schemas import (
     ClinicalNote,
     LabPanel,
     NewNote,
+    NurseVitalsInput,
     PartialLabInput,
     PatientDetail,
     PatientSummary,
+    VitalsRecorded,
     WardResponse,
 )
 from biosentry.services.patients import PatientService, RejectedError
 from biosentry.services.ward import WardService
 
 NOT_FOUND = "Not found"
+
+# The body-bearing write routes and the action their audit rows carry. A body that fails
+# validation never reaches the handler, so its audit row is written by the validation handler.
+WRITE_ACTIONS = {
+    ("POST", "/patients"): "admit_patient",
+    ("POST", "/patients/{patient_id}/notes"): "add_note",
+    ("POST", "/patients/{patient_id}/labs"): "enter_labs",
+    ("POST", "/patients/{patient_id}/vitals"): "record_vitals",
+}
 
 
 @dataclass(slots=True)
@@ -61,10 +78,8 @@ def context(request: Request) -> Context:
 Ctx = Annotated[Context, Depends(context)]
 
 
-def clinician(
-    ctx: Ctx,
-    authorization: Annotated[str | None, Header()] = None,
-) -> str:
+def identify(ctx: Context, authorization: str | None) -> str:
+    """The clinician a bearer token names. Otherwise 401/403, audited without an identity."""
     scheme, _, token = (authorization or "").partition(" ")
     if scheme.lower() != "bearer" or not token.strip():
         ctx.audit.append(None, "authenticate", "-", "denied")
@@ -80,26 +95,40 @@ def clinician(
     return identity
 
 
+def clinician(
+    ctx: Ctx,
+    authorization: Annotated[str | None, Header()] = None,
+) -> str:
+    return identify(ctx, authorization)
+
+
 Who = Annotated[str, Depends(clinician)]
 
 
 def create_app(settings: Settings | None = None, clock: Clock = utc_now) -> FastAPI:
     settings = settings or Settings.from_env()
     store = memory_store.load(settings.dataset)
-    audit = AuditLog(clock)
+    audit = AuditLog(clock, role_of=store.role_of)
     ward_clock: Clock = (lambda: store.as_of) if settings.ward_time == "dataset" else clock
     logging.getLogger("biosentry.api").warning(
         "Identity is a stub: the bearer token IS the clinician id. Never expose this server "
         "beyond loopback; real authentication replaces it before any non-synthetic use."
     )
+    wards = WardService(store, audit)
     ctx = Context(
         store=store,
         audit=audit,
-        wards=WardService(store, audit),
-        patients=PatientService(store, audit, ward_clock),
+        wards=wards,
+        patients=PatientService(store, audit, wards, ward_clock),
     )
 
-    app = FastAPI(title="BioSentry Intelligence API", version="0.1.0")
+    app = FastAPI(
+        title="BioSentry Intelligence API",
+        version="0.1.0",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     app.state.ctx = ctx
     app.add_middleware(
         CORSMiddleware,
@@ -117,6 +146,25 @@ def create_app(settings: Settings | None = None, clock: Clock = utc_now) -> Fast
     @app.exception_handler(RejectedError)
     async def rejected(_: Request, exc: RejectedError) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request: Request, exc: RequestValidationError) -> Response:
+        # Identity first, as on every route: a body that is not JSON fails before the
+        # dependencies run, and an unidentified caller must be told nothing about it.
+        try:
+            who = identify(ctx, request.headers.get("authorization"))
+        except HTTPException as denied:
+            return JSONResponse(
+                status_code=denied.status_code,
+                content={"detail": denied.detail},
+                headers=denied.headers,
+            )
+        route = request.scope.get("route")
+        action = WRITE_ACTIONS.get((request.method, getattr(route, "path", "")))
+        if action is not None:  # ids and outcome only: the rejected values are never logged
+            resource = str(request.path_params.get("patient_id", "-"))
+            ctx.audit.append(who, action, resource, "rejected")
+        return await request_validation_exception_handler(request, exc)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
@@ -170,6 +218,15 @@ def create_app(settings: Settings | None = None, clock: Clock = utc_now) -> Fast
         if panel is None:
             raise HTTPException(status_code=404, detail=NOT_FOUND)
         return panel
+
+    @app.post("/patients/{patient_id}/vitals", response_model=VitalsRecorded)
+    def record_vitals(
+        patient_id: str, body: NurseVitalsInput, ctx: Ctx, who: Who
+    ) -> VitalsRecorded:
+        recorded = ctx.patients.record_vitals(who, patient_id, body)
+        if recorded is None:
+            raise HTTPException(status_code=404, detail=NOT_FOUND)
+        return recorded
 
     @app.post("/extract/labs", status_code=501)
     def extract_labs(who: Who) -> JSONResponse:

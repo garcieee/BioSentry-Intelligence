@@ -1,5 +1,7 @@
 """M2b: perfusion index and agreement-gated respiratory rate score against known truth."""
 
+from collections.abc import Sequence
+
 import numpy as np
 import pytest
 from no_imputation import assert_mask_invariance, assert_no_imputation, with_gap
@@ -459,3 +461,82 @@ def test_a_channel_exactly_at_the_coverage_floor_still_votes() -> None:
     assert first.value.estimators == ("ecg", "ppg")
     just_above = rr_windows(ecg, ppg, accel, PROV, min_coverage=0.76)
     assert just_above[0] == NotComputed("insufficient_estimators")
+
+
+def _bumps(
+    duration_s: float,
+    fs: float,
+    times: list[float],
+    extra: Sequence[tuple[float, float, float]] = (),
+    sigma_s: float = 0.09,
+) -> tuple[float, ...]:
+    """DC 1000 plus a Gaussian pulse (AC 12) at each time, and optional (time, amp, sigma) bumps."""
+    t = np.arange(round(duration_s * fs)) / fs
+    x = np.full_like(t, 1000.0)
+    for tb in times:
+        x += 12.0 * np.exp(-0.5 * ((t - tb) / sigma_s) ** 2)
+    for tb, amp, sigma in extra:
+        x += amp * np.exp(-0.5 * ((t - tb) / sigma) ** 2)
+    return tuple(float(v) for v in x)
+
+
+def test_a_pulse_exactly_a_second_from_the_run_edge_is_scored_and_one_sample_closer_is_not() -> (
+    None
+):
+    fs = 100.0  # the foot and DC windows need 1 s (100 samples) on each side
+    at_limit = _bumps(6.0, fs, [1.0, 2.0, 3.0, 4.0, 5.0])
+    got = detect_pulses(at_limit, (True,) * len(at_limit), fs)
+    assert got.valid == (True, True, True, True, False)  # p + 1 s is the run end
+    inside = _bumps(6.0, fs, [0.99, 2.0, 3.0, 4.0, 4.99])
+    got = detect_pulses(inside, (True,) * len(inside), fs)
+    assert got.valid == (False, True, True, True, True)  # the first is one sample too close
+
+
+def test_a_second_peak_inside_the_refractory_is_one_pulse_and_the_taller_one_is_kept() -> None:
+    fs = 100.0
+    beats = [0.8 + k for k in range(12)]
+    smaller = _bumps(14.0, fs, beats, [(b + 0.2, 0.8 * 12.0, 0.04) for b in beats])
+    taller = _bumps(14.0, fs, beats, [(b + 0.2, 1.3 * 12.0, 0.04) for b in beats])
+    first = detect_pulses(smaller, (True,) * len(smaller), fs)
+    assert len(first.times_s) == 12
+    assert first.times_s[3] == pytest.approx(3.8, abs=0.03)
+    second = detect_pulses(taller, (True,) * len(taller), fs)
+    assert len(second.times_s) == 12
+    assert second.times_s[3] == pytest.approx(3.99, abs=0.03)  # the later, taller one
+
+
+def test_only_consecutive_valid_pulses_set_the_pulse_rate() -> None:
+    # a narrow 3x spike after every other beat is detected and judged invalid; the intervals to
+    # and from it (0.45 s, 0.55 s) are not used, so the rate is the beats' own 60 per minute
+    fs = 100.0
+    beats = [0.8 + k for k in range(38)]
+    x = _bumps(40.0, fs, beats, [(b + 0.45, 3 * 12.0, 0.02) for b in beats[::2]])
+    got = pi_window(x, (True,) * len(x), fs)
+    assert isinstance(got, PiValue)
+    assert got.pulse_rate_bpm == pytest.approx(60.0, abs=1.0)
+
+
+def test_exactly_the_minimum_number_of_valid_pulses_is_computed_and_one_fewer_is_not() -> None:
+    fs = 100.0  # ten pulses, each with a second of room on both sides, are all valid
+    ten = _bumps(12.0, fs, [1.5 + k for k in range(10)])
+    nine = _bumps(12.0, fs, [1.5 + k for k in range(9)])
+    assert isinstance(pi_window(ten, (True,) * len(ten), fs), PiValue)
+    assert pi_window(nine, (True,) * len(nine), fs) == NotComputed("too_few_valid_pulses")
+
+
+def test_an_out_of_band_motion_tone_is_not_mistaken_for_breathing() -> None:
+    # 15 breaths/min plus a stronger 60/min vibration: only the 6-30/min band is searched
+    fs = 25.0
+    t = np.arange(round(64 * fs)) / fs
+    x = 0.05 * np.sin(2 * np.pi * (15.0 / 60.0) * t) + 0.3 * np.sin(2 * np.pi * 1.0 * t)
+    got = rr_from_accel(tuple(float(v) for v in x), (True,) * len(t), fs)
+    assert got == pytest.approx(15.0, abs=1.0)
+
+
+def test_a_flat_topped_pulse_is_one_pulse_not_one_per_sample_above_the_floor() -> None:
+    # a clipped pulse stays above the peak floor for longer than the refractory; only its
+    # local maximum is a candidate
+    fs = 100.0
+    wide = np.asarray(_bumps(14.0, fs, [0.8 + k for k in range(12)], sigma_s=0.2))
+    clipped = tuple(float(v) for v in np.minimum(wide, 1000.0 + 5.0))
+    assert len(detect_pulses(clipped, (True,) * len(clipped), fs).times_s) == 12

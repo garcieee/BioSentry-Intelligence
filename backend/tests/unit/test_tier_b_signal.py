@@ -16,7 +16,7 @@ from biosentry.domain.scoring.tier_b.burden import (
     robust_baseline,
     robust_z,
 )
-from biosentry.domain.scoring.tier_b.ecg import detect_beats
+from biosentry.domain.scoring.tier_b.ecg import Beats, detect_beats
 from biosentry.domain.scoring.tier_b.hrv import HrvValue, compute_hrv, hrv_window, nn_intervals
 from biosentry.domain.signals import SignalInput
 from biosentry.schemas import Provenance
@@ -416,3 +416,68 @@ def test_a_baseline_needs_exactly_the_minimum_valid_minutes() -> None:
 
 def test_an_empty_series_is_refused_as_no_minutes_not_as_low_coverage() -> None:
     assert hr_burden([], []) == NotComputed("no_minutes")
+
+
+# --- edges and ties the detector decides at the exact sample -------------------------------
+
+
+def _spikes(
+    duration_s: float, fs: float, times: list[float], amps: list[float]
+) -> tuple[float, ...]:
+    """A flat trace with a narrow QRS-like spike at each time: exact, noise-free beat times."""
+    t = np.arange(round(duration_s * fs)) / fs
+    x = np.zeros_like(t)
+    for tb, amp in zip(times, amps, strict=True):
+        x += amp * np.exp(-0.5 * ((t - tb) / 0.012) ** 2)
+    return tuple(float(v) for v in x)
+
+
+@pytest.mark.parametrize(("samples_apart", "beats"), [(62, 5), (61, 4)], ids=["62", "61"])
+def test_two_r_peaks_one_refractory_apart_are_two_beats_and_one_sample_closer_are_one(
+    samples_apart: int, beats: int
+) -> None:
+    fs = 250.0  # the refractory is round(0.25 s * fs) = 62 samples
+    x = _spikes(5.0, fs, [0.6, 1.6, 2.6, 3.6, 3.6 + samples_apart / fs], [1.0] * 5)
+    assert len(detect_beats(x, (True,) * len(x), fs).times_s) == beats
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "kept_s"), [(0.6, 1.0, 3.57), (1.0, 0.6, 3.4)], ids=["later", "earlier"]
+)
+def test_two_candidates_inside_the_refractory_keep_the_larger_peak(
+    first: float, second: float, kept_s: float
+) -> None:
+    fs = 250.0
+    x = _spikes(5.0, fs, [0.6, 1.6, 2.6, 3.4, 3.57], [1.0, 1.0, 1.0, first, second])
+    beats = detect_beats(x, (True,) * len(x), fs)
+    assert len(beats.times_s) == 4
+    assert beats.times_s[-1] == pytest.approx(kept_s, abs=0.01)
+
+
+def test_a_beat_exactly_a_window_from_the_run_edge_is_scored_and_one_sample_closer_is_not() -> None:
+    fs = 250.0  # pre-window 0.2 s = 50 samples, post-window 0.4 s = 100 samples
+    at_limit = _spikes(4.6, fs, [0.2, 1.2, 2.2, 3.2, 4.2], [1.0] * 5)
+    got = detect_beats(at_limit, (True,) * len(at_limit), fs)
+    assert got.valid == (True, True, True, True, False)  # the last needs one more sample
+    inside = _spikes(4.6, fs, [0.196, 1.2, 2.2, 3.2, 4.196], [1.0] * 5)
+    got = detect_beats(inside, (True,) * len(inside), fs)
+    assert got.valid == (False, True, True, True, True)  # the first is one sample too close
+
+
+def test_one_pair_of_beats_gives_one_interval() -> None:
+    nn, ectopic, plausible = nn_intervals(Beats((1.0, 2.0), (True, True), (0, 0), (1.0, 1.0)))
+    assert nn.tolist() == [1.0]
+    assert (ectopic, plausible) == (0, 1)
+
+
+def test_an_interval_with_exactly_three_neighbours_is_still_judged_for_ectopy() -> None:
+    beats = Beats((0.0, 1.0, 2.0, 3.0, 3.5), (True,) * 5, (0,) * 5, (1.0,) * 5)
+    nn, ectopic, _ = nn_intervals(beats)
+    assert np.isnan(nn[-1])
+    assert ectopic == 1
+
+
+def test_a_flat_baseline_is_usable_at_exactly_the_minimum_spread() -> None:
+    base = Baseline(median=1.0, mad=1.0, n=100)
+    got = robust_z(2.0, base, min_scale=base.scale)
+    assert got == pytest.approx(1.0 / base.scale)

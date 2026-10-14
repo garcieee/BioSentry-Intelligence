@@ -1,9 +1,9 @@
 # training/
 
 Offline model training for BioSentry. **Not part of the application**: nothing here is imported by
-`backend/` or `frontend/`, and no data or weights are committed (README I5; PhysioNet licences).
-Trained artifacts, the model card and the registry entry land under `models/` once CP5's registry
-schema exists. The isolation is enforced, not just stated:
+`backend/` or `frontend/`, and no data is committed (README I5; PhysioNet licences). The trained
+weights and parity vectors of the rhythm head live under `models/tier_b/arrhythmia/` behind a
+registry sha256; they contain no recordings. The isolation is enforced, not just stated:
 `backend/tests/unit/test_training_isolation.py` fails the build if anything here imports
 `biosentry.*` or references `data/synthetic` (I5).
 
@@ -15,6 +15,8 @@ Status: **spike (M3b)**, retrospective and on public data only.
 |------|---------|
 | `rhythm_head.py` | Tiny 1-D CNN rhythm head (N / AF / Other / Noisy) on 10 s single-lead ECG windows: `inspect`, `prep`, `train`, `eval`, `opt`, `export` |
 | `fetch_data.py` | Downloads the open PhysioNet corpora, verifies SHA-256 sums by exact path |
+| `export_numpy.py` | Turns the FP32 and INT8 ONNX files into `weights.npz` and `golden.npz` for the backend's numpy forward pass (needs `rhythm_head.py` beside it, so no `-I`) |
+| `golden_windows.py` | The seeded synthetic windows behind `golden.npz` (numpy only; a test regenerates them from the seed) |
 | `pyproject.toml` | Own project, exact pins, Python 3.11 |
 | `constraints.txt` | Exact versions of the whole dependency closure (use with `pip install -c`) |
 
@@ -29,6 +31,7 @@ python3.11 -m venv .venv && .venv/bin/pip install -c constraints.txt -e .
 .venv/bin/python -I rhythm_head.py eval   --data data --out out
 .venv/bin/python -I rhythm_head.py opt    --data data --out out    # operating point from validation only
 .venv/bin/python -I rhythm_head.py export --data data --out out    # ONNX FP32 + INT8, latency
+.venv/bin/python export_numpy.py --onnx-dir out --models-dir ../models/tier_b/arrhythmia
 ```
 
 Run with `-I` and keep downloaded data in its own directory: treat it as untrusted input.

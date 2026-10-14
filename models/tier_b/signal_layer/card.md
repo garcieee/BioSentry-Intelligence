@@ -46,6 +46,9 @@ Nothing is interpolated, resampled or filled; a gap is a gap (I1).
    arrays during development and must not be used for numeric runs.
 7. **Cadence assumed.** ECG 250-500 Hz, PPG about 100 Hz, accelerometer 25 Hz or more,
    per-minute derived vitals for burden and baseline.
+8. **Scorer fingerprint.** `SCORER_MODULES` (tables, news2, arbiter; `test_cache` pins it) is
+   what the snapshot cache hashes. These Tier B modules are not hashed because Tier B does not
+   feed a decision yet; when Tier B is wired into scoring its modules must join `SCORER_MODULES`.
 
 ## Design parameters (from the literature or tuned on synthetic signals; none validated on patch data)
 
@@ -70,7 +73,7 @@ Nothing is interpolated, resampled or filled; a gap is a gap (I1).
 | Perfusion index | accuracy against the generator's known AC/DC | within 12% (reads 5-10% low on 90 ms pulses; 0.82 of truth on 40 ms pulses) | design tolerance; synthetic signals only |
 | HRV | SDNN and RMSSD against exact interval series | within 0.01 ms; SDNN uses n - 1; RMSSD never differences across an excluded interval | design; synthetic exact series |
 | RR | band | 6-30 breaths/min | plausible adult range |
-| RR | agreement | within 3 breaths/min, at least 2 of 3 estimators, and one largest group only (two overlapping pairs are refused) | design |
+| RR | agreement | within 3 breaths/min, at least 2 of 3 estimators; two different agreeing groups are refused (separate pairs and overlapping triples too) | design |
 | RR | spectral prominence (peak / mean band power) | at least 8 | tuned: noise alone median 3.8, max 7.1; 6 gave false votes |
 | RR | valid beats needed / accelerometer minimum run | 8 / 20 s | design; the longest run must reach about 30 s at 10-25/min (20 s at 30/min): only an edge gap up to about 2 s keeps the vote in a 32 s window, see Limits |
 | RR | channel coverage floor to vote | 50% of the window | design |

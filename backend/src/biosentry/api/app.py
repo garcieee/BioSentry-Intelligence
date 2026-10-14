@@ -21,8 +21,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from biosentry.cache import MemoryCache, SnapshotCache
 from biosentry.core.audit import AuditLog, Clock, utc_now
 from biosentry.core.config import Settings
+from biosentry.domain.scoring.fingerprint import scorer_sha
 from biosentry.repositories.memory import store as memory_store
 from biosentry.schemas import (
     AbstainedRow,
@@ -38,6 +40,7 @@ from biosentry.schemas import (
     WardResponse,
 )
 from biosentry.services.patients import PatientService, RejectedError
+from biosentry.services.scoring import ScoringService
 from biosentry.services.ward import WardService
 
 NOT_FOUND = "Not found"
@@ -56,6 +59,8 @@ WRITE_ACTIONS = {
 class Context:
     store: memory_store.MemoryStore
     audit: AuditLog
+    cache: SnapshotCache | None
+    scoring: ScoringService
     wards: WardService
     patients: PatientService
 
@@ -105,7 +110,12 @@ def clinician(
 Who = Annotated[str, Depends(clinician)]
 
 
-def create_app(settings: Settings | None = None, clock: Clock = utc_now) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    clock: Clock = utc_now,
+    cache: SnapshotCache | None = None,
+) -> FastAPI:
+    """Build the app. `cache` injects a snapshot cache (tests); by default settings choose."""
     settings = settings or Settings.from_env()
     store = memory_store.load(settings.dataset)
     audit = AuditLog(clock, role_of=store.role_of)
@@ -114,12 +124,22 @@ def create_app(settings: Settings | None = None, clock: Clock = utc_now) -> Fast
         "Identity is a stub: the bearer token IS the clinician id. Never expose this server "
         "beyond loopback; real authentication replaces it before any non-synthetic use."
     )
-    wards = WardService(store, audit)
+    if cache is None and settings.cache == "memory":
+        cache = MemoryCache(ttl_s=settings.cache_ttl_s)
+    logging.getLogger("biosentry.api").info(
+        "snapshot cache: %s (ttl %gs)",
+        settings.cache if cache is not None else "none",
+        settings.cache_ttl_s,
+    )
+    scoring = ScoringService(store, cache, scorer_sha=scorer_sha(), clock=ward_clock)
+    wards = WardService(store, audit, scoring)
     ctx = Context(
         store=store,
         audit=audit,
+        cache=cache,
+        scoring=scoring,
         wards=wards,
-        patients=PatientService(store, audit, wards, ward_clock),
+        patients=PatientService(store, audit, wards, scoring, ward_clock),
     )
 
     app = FastAPI(

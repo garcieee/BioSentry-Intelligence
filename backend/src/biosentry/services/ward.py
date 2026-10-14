@@ -1,16 +1,16 @@
 """Read model: the ward, one patient, and the patient picker, scoped to the caller.
 
-Scope is resolved first and fails closed: an unknown clinician sees nobody. Scores, ranks and
-reasons are recomputed from the stored vitals with the real news2() and arbiter on every
-read, and the rank is relative to the caller's set (it is never stored or cached). A patient
-is ranked only while every NEWS2 input is present; otherwise the row is NOT RANKED with the
-arbiter's reason and instruction. Every read appends an audit record, including reads that
-find nothing.
+Scope is resolved first and fails closed: an unknown clinician sees nobody, and a failing
+scope lookup serves nothing. Decisions come from the scoring service (the real news2() and
+arbiter, behind the snapshot cache, which is only ever asked about patients already in scope).
+The rank is relative to the caller's set and is computed here on every request: it is never
+stored or cached. A patient is ranked only while every NEWS2 input is present; otherwise the
+row is NOT RANKED with the arbiter's reason and instruction. Every read appends an audit
+record, including reads that find nothing, and that write never sits behind the cache.
 """
 
 from biosentry.core.audit import AuditLog
-from biosentry.domain.arbiter import NotRanked, Ranked, arbitrate, rank_ward
-from biosentry.domain.scoring.tier_a import inputs_from_vitals, score_news2
+from biosentry.domain.arbiter import NotRanked, Ranked, rank_ward
 from biosentry.repositories.memory.store import MemoryStore
 from biosentry.schemas import (
     AbstainedRow,
@@ -24,6 +24,7 @@ from biosentry.schemas import (
     UnscoredPatient,
     WardResponse,
 )
+from biosentry.services.scoring import ScoringService
 
 SHIFT = "07:00"
 
@@ -74,31 +75,29 @@ def abstained_row(state: UnscoredPatient, decision: NotRanked) -> AbstainedRow:
 
 
 class WardService:
-    def __init__(self, store: MemoryStore, audit: AuditLog) -> None:
+    def __init__(self, store: MemoryStore, audit: AuditLog, scoring: ScoringService) -> None:
         self._store = store
         self._audit = audit
+        self._scoring = scoring
 
     def visible(self, clinician_id: str) -> frozenset[str]:
         return self._store.assigned(clinician_id)
 
+    def _view(
+        self, ids: frozenset[str]
+    ) -> tuple[list[ScoreRow], list[AbstainedRow], dict[str, UnscoredPatient]]:
+        """Rows ranked relative to this set, and the state each row was built from."""
+        scored = self._scoring.score_many(ids)
+        ranking = rank_ward(s.snapshot.decision for s in scored)
+        states = {s.state.id: s.state for s in scored}
+        tiers = self._store.tier_status
+        ranked = [score_row(states[d.patient_id], rank, d, tiers) for rank, d in ranking.ranked]
+        abstained = [abstained_row(states[d.patient_id], d) for d in ranking.not_ranked]
+        return ranked, abstained, states
+
     def compute(self, ids: frozenset[str]) -> tuple[list[ScoreRow], list[AbstainedRow]]:
         """Ranked and NOT RANKED rows for these patients, ranked relative to this set."""
-        decisions: dict[str, Ranked | NotRanked] = {}
-        for pid in sorted(ids):
-            record = self._store.patients.get(pid)
-            if record is None:
-                continue
-            result = score_news2(inputs_from_vitals(record.state.vitals))
-            decisions[pid] = arbitrate(pid, result)
-        ranking = rank_ward(decisions.values())
-        tiers = self._store.tier_status
-        ranked = [
-            score_row(self._store.patients[d.patient_id].state, rank, d, tiers)
-            for rank, d in ranking.ranked
-        ]
-        abstained = [
-            abstained_row(self._store.patients[d.patient_id].state, d) for d in ranking.not_ranked
-        ]
+        ranked, abstained, _ = self._view(ids)
         return ranked, abstained
 
     # --- reads ---------------------------------------------------------------------------
@@ -124,13 +123,13 @@ class WardService:
             # Missing and not-yours look identical to the caller (and in the log).
             self._audit.append(clinician_id, "view_patient", patient_id, "not_found")
             return None
-        ranked, _ = self.compute(visible)
+        ranked, _, states = self._view(visible)
         row = next((r for r in ranked if r.id == patient_id), None)
         if row is None:  # NOT RANKED: no detail page (there is no score to explain)
             self._audit.append(clinician_id, "view_patient", patient_id, "not_found")
             return None
         self._audit.append(clinician_id, "view_patient", patient_id, "ok")
-        state = record.state
+        state = states[patient_id]
         breakdown = TierBreakdown(
             tier_a=TierAScore(score=row.score, label=f"NEWS2 = {row.score}"),
             tier_b=state.tier_b,

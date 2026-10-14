@@ -2,8 +2,9 @@
 
 Nothing here clamps or fills in a value. A number that cannot be a real reading is rejected
 with `RejectedError`; an omitted field stays as it was. A write changes a patient's state
-only; the score, rank and reasons are recomputed (by the real arbiter) the next time the
-ward is read, and `record_vitals` reports the result at once.
+through the store (which bumps its revision) and then refreshes the patient's snapshot, so the
+score, rank and reasons come from the real arbiter at once: `record_vitals` reports the
+result in its response, and the next read of the ward sees it.
 """
 
 from datetime import datetime, timedelta
@@ -44,6 +45,7 @@ from biosentry.schemas.common import (
     Spo2ScalePresent,
 )
 
+from .scoring import ScoringService
 from .ward import WardService
 
 # Bounds on a nurse-typed blood pressure: physical, not clinical. The floor is deliberately
@@ -196,11 +198,13 @@ class PatientService:
         store: MemoryStore,
         audit: AuditLog,
         wards: WardService,
+        scoring: ScoringService,
         clock: Clock = utc_now,
     ) -> None:
         self._store = store
         self._audit = audit
         self._wards = wards
+        self._scoring = scoring
         self._clock = clock
 
     def _visible(self, clinician_id: str, patient_id: str, action: str) -> PatientRecord | None:
@@ -249,8 +253,7 @@ class PatientService:
     def enter_labs(
         self, clinician_id: str, patient_id: str, labs: PartialLabInput
     ) -> LabPanel | None:
-        record = self._visible(clinician_id, patient_id, "enter_labs")
-        if record is None:
+        if self._visible(clinician_id, patient_id, "enter_labs") is None:
             return None
         entered = {k: v for k, v in labs.model_dump().items() if v is not None}
         for name, value in entered.items():
@@ -259,19 +262,22 @@ class PatientService:
                 raise RejectedError(f"{name} cannot be negative")
         now = self._clock()
         prov = _provenance(ProvenanceSource.lab, now)
-        with self._store.lock:
+
+        def merge(state: UnscoredPatient) -> UnscoredPatient:
             fields: dict[str, object] = {
-                name: getattr(record.state.labs, name) for name in LabPanel.model_fields
+                name: getattr(state.labs, name) for name in LabPanel.model_fields
             }
             for name, value in entered.items():
                 fields[name] = NumberMeasurement(
                     data=NumberPresent(present=True, value=value), provenance=prov
                 )
             fields["freshness_hours"] = oldest_lab_age_hours(fields, now)
-            panel = LabPanel.model_validate(fields)
-            record.state = record.state.model_copy(update={"labs": panel})
+            return state.model_copy(update={"labs": LabPanel.model_validate(fields)})
+
+        _, state = self._store.update(patient_id, merge)
         self._audit.append(clinician_id, "enter_labs", patient_id, "ok")
-        return panel
+        self._scoring.refresh(patient_id)  # a lab is not a NEWS2 input, but a write drops it
+        return state.labs
 
     # --- admission -------------------------------------------------------------------------
 
@@ -310,8 +316,7 @@ class PatientService:
         Bounds are physical, not clinical, and are never clamped. The recorded measurement is
         echoed with its provenance; the rank is relative to the caller's own set.
         """
-        record = self._visible(clinician_id, patient_id, "record_vitals")
-        if record is None:
+        if self._visible(clinician_id, patient_id, "record_vitals") is None:
             return None
         try:
             blood_pressure = (
@@ -350,13 +355,16 @@ class PatientService:
             )
             updates["spo2_scale"] = echo_scale
 
-        with self._store.lock:
-            state = record.state
-            record.state = state.model_copy(
+        self._store.update(
+            patient_id,
+            lambda state: state.model_copy(
                 update={"vitals": state.vitals.model_copy(update=updates)}
-            )
+            ),
+        )
         self._audit.append(clinician_id, "record_vitals", patient_id, "ok")
 
+        # The read below recomputes this patient's snapshot (its revision just moved), so the
+        # response is built from the fresh decision.
         ranked, abstained = self._wards.compute(self._store.assigned(clinician_id))
         row = next((r for r in ranked if r.id == patient_id), None)
         not_ranked = next((a for a in abstained if a.id == patient_id), None)

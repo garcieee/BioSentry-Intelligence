@@ -11,7 +11,9 @@ here; every record carries `synthetic: true`, and the file is never training dat
   seeded generator (`generator.py`) and assembled into contract records by `assemble.py`.
 - Same seed, byte-identical file (default seed `20260903`, fixed `as_of`, no wall clock).
 - Scores, ranks, trends and escalation reasons are not scripted: they are computed by the real
-  `news2()` and the arbiter. The scripts only say how each vital moves.
+  `news2()` and the arbiter. The scripts only say how each vital moves. The trend compares NEWS2
+  now with NEWS2 for the hour ending three hours earlier, holding the nurse-entered inputs
+  constant, so it reflects device-vital change only.
 - Gaps are `null` (never zero, never filled). A missing reading is an absent measurement
   with a reason.
 - Tier B and Tier C content is demo content: scripted, `tier_status` reads "(demo)", and it

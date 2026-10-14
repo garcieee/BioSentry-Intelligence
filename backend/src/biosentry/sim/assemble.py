@@ -237,7 +237,11 @@ def _earlier_level(signals: PatientSignals, vital: Vital) -> float | None:
 
 
 def _trend(signals: PatientSignals | None, now: News2Inputs) -> Trend:
-    """NEWS2 now against NEWS2 three hours ago, both from the same scorer."""
+    """NEWS2 now against NEWS2 for the hour ending three hours ago, both from the scorer.
+
+    Caveat: the nurse-entered inputs (blood pressure, ACVPU, oxygen, SpO2 scale) are held at
+    their current values for the earlier hour, so this trend reflects device-vital change only.
+    """
     if signals is None:
         return Trend.insufficient
     then = News2Inputs(

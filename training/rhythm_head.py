@@ -280,7 +280,7 @@ def cmd_train(a):
 
 def load_model(out):
     import torch
-    m = make_model(); m.load_state_dict(torch.load(pathlib.Path(out) / "tiny_fp32.pt")); m.eval()
+    m = make_model(); m.load_state_dict(torch.load(pathlib.Path(out) / "tiny_fp32.pt", weights_only=True)); m.eval()
     return m
 
 

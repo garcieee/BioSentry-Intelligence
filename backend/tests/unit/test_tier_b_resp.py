@@ -1,0 +1,270 @@
+"""M2b: perfusion index and agreement-gated respiratory rate score against known truth."""
+
+import numpy as np
+import pytest
+from synth_vitals import SynthVitals, synth_vitals
+
+from biosentry.domain.computed import Computed, NotComputed
+from biosentry.domain.scoring.tier_b.ppg import PiValue, compute_pi, detect_pulses, pi_window
+from biosentry.domain.scoring.tier_b.respiration import (
+    RrValue,
+    agree,
+    rr_from_accel,
+    rr_from_ecg,
+    rr_from_ppg,
+    rr_windows,
+)
+from biosentry.domain.signals import SignalInput
+from biosentry.schemas import Provenance
+from samples import provenance
+
+PROV = Provenance.model_validate(provenance())
+WINDOW_S = 32.0
+
+
+def _sig(samples: tuple[float, ...], fs: float, window_s: float = WINDOW_S) -> SignalInput:
+    return SignalInput(fs, window_s, samples, (True,) * len(samples))
+
+
+def _gapped(sig: SignalInput, lo_s: float, hi_s: float) -> SignalInput:
+    lo, hi = round(lo_s * sig.fs), round(hi_s * sig.fs)
+    samples = tuple(float("nan") if lo <= i < hi else x for i, x in enumerate(sig.samples))
+    valid = tuple(v and not lo <= i < hi for i, v in enumerate(sig.valid))
+    return SignalInput(sig.fs, sig.window_s, samples, valid)
+
+
+def _channels(v: SynthVitals) -> tuple[SignalInput, SignalInput, SignalInput]:
+    return _sig(v.ecg, v.ecg_fs), _sig(v.ppg, v.ppg_fs), _sig(v.accel, v.accel_fs)
+
+
+# --- perfusion index -------------------------------------------------------------------
+
+
+def test_perfusion_index_tracks_ac_over_dc() -> None:
+    for ac in (12.0, 30.0):
+        v = synth_vitals(duration_s=40, ppg_ac=ac, seed=1)
+        got = pi_window(v.ppg, (True,) * len(v.ppg), v.ppg_fs)
+        assert isinstance(got, PiValue)
+        assert got.pi_percent == pytest.approx(v.pi_percent, rel=0.2)
+        assert got.valid_share > 0.9
+
+
+def _spiked(v: SynthVitals, times: list[float], height: float) -> tuple[float, ...]:
+    axis = np.arange(len(v.ppg)) / v.ppg_fs
+    spikes = np.zeros(len(v.ppg))
+    for tb in times:
+        spikes += height * np.exp(-0.5 * ((axis - tb) / 0.02) ** 2)
+    return tuple(float(a + b) for a, b in zip(v.ppg, spikes, strict=True))
+
+
+def test_template_failing_pulses_do_not_enter_the_perfusion_index() -> None:
+    # usable but wrong-shaped events (a few narrow 3x spikes between pulses) are detected as
+    # peaks; they must be flagged invalid and left out of both the median and the count
+    v = synth_vitals(duration_s=40, ppg_ac=12.0, seed=19)
+    clean = pi_window(v.ppg, (True,) * len(v.ppg), v.ppg_fs)
+    assert isinstance(clean, PiValue)
+    noisy = _spiked(v, [5.3, 11.9, 18.4, 24.1, 30.2, 35.6], 3 * 12.0)
+    got = pi_window(noisy, (True,) * len(noisy), v.ppg_fs)
+    assert isinstance(got, PiValue)
+    assert got.pi_percent == pytest.approx(clean.pi_percent, rel=0.1)
+    assert got.n_pulses <= clean.n_pulses
+    assert got.valid_share < clean.valid_share  # the spikes are visible as rejected pulses
+
+
+def test_a_periodic_artefact_bigger_than_the_pulse_is_caught_by_the_ecg_rate_check() -> None:
+    # steady-cadence artefact at ~37/min, 8x the pulse: it takes over detection, so the PPG
+    # alone cannot tell; the ECG rate (72/min) can
+    v = synth_vitals(duration_s=40, hr_bpm=72.0, ppg_ac=12.0, seed=21)
+    noisy = _spiked(v, [float(x) for x in np.arange(3.1, 36.0, 1.6)], 8 * 12.0)
+    usable = (True,) * len(noisy)
+    alone = pi_window(noisy, usable, v.ppg_fs)
+    assert isinstance(alone, PiValue)
+    assert alone.pulse_rate_bpm == pytest.approx(37.5, abs=3.0)  # visible to the caller
+    checked = pi_window(noisy, usable, v.ppg_fs, expected_hr_bpm=72.0)
+    assert checked == NotComputed("pulse_rate_disagrees_with_ecg")
+    honest = pi_window(v.ppg, (True,) * len(v.ppg), v.ppg_fs, expected_hr_bpm=72.0)
+    assert isinstance(honest, PiValue)
+    assert honest.pulse_rate_bpm == pytest.approx(72.0, abs=3.0)
+
+
+def test_a_negative_dc_level_is_refused_not_reported() -> None:
+    v = synth_vitals(duration_s=40, ppg_dc=-500.0, ppg_ac=12.0, seed=20)
+    assert pi_window(v.ppg, (True,) * len(v.ppg), v.ppg_fs) == NotComputed("dc_not_positive")
+
+
+def test_pulses_are_not_reported_inside_a_gap() -> None:
+    v = synth_vitals(duration_s=60, seed=2)
+    sig = _gapped(_sig(v.ppg, v.ppg_fs, 60.0), 20.0, 35.0)
+    pulses = detect_pulses(sig.samples, sig.usable, sig.fs)
+    assert pulses.times_s
+    assert not any(20.0 <= t < 35.0 for t in pulses.times_s)
+    assert len(set(pulses.run)) == 2
+
+
+def test_perfusion_index_is_refused_when_too_little_signal_remains() -> None:
+    v = synth_vitals(duration_s=40, seed=3)
+    sig = _gapped(_sig(v.ppg, v.ppg_fs, 40.0), 4.0, 38.0)
+    assert pi_window(sig.samples, sig.usable, sig.fs) == NotComputed("too_few_valid_pulses")
+
+
+def test_perfusion_index_windows_carry_coverage_and_never_fill() -> None:
+    v = synth_vitals(duration_s=64, seed=4)
+    sig = _gapped(_sig(v.ppg, v.ppg_fs), 36.0, 44.0)  # 8 s of the second 32 s window
+    first, second = compute_pi(sig, PROV)
+    assert isinstance(first, Computed)
+    assert first.quality.value == "ok"
+    assert isinstance(second, Computed)
+    assert second.quality.value == "degraded"
+    assert second.window.coverage == pytest.approx(0.75, abs=0.01)
+
+
+# --- respiratory rate ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("rr", [12.0, 18.0, 24.0])
+def test_each_estimator_recovers_the_rate(rr: float) -> None:
+    v = synth_vitals(duration_s=WINDOW_S, rr_bpm=rr, seed=5)
+    ecg, ppg, accel = _channels(v)
+    for name, got in (
+        ("ecg", rr_from_ecg(ecg.samples, ecg.usable, ecg.fs)),
+        ("ppg", rr_from_ppg(ppg.samples, ppg.usable, ppg.fs)),
+        ("accel", rr_from_accel(accel.samples, accel.usable, accel.fs)),
+    ):
+        assert got is not None, name
+        assert got == pytest.approx(rr, abs=2.0), name
+
+
+def test_gated_rate_averages_the_agreeing_estimators() -> None:
+    v = synth_vitals(duration_s=WINDOW_S, rr_bpm=15.0, seed=6)
+    ecg, ppg, accel = _channels(v)
+    (got,) = rr_windows(ecg, ppg, accel, PROV)
+    assert isinstance(got, Computed)
+    assert isinstance(got.value, RrValue)
+    assert got.value.breaths_per_min == pytest.approx(15.0, abs=2.0)
+    assert got.value.estimators == ("accel", "ecg", "ppg")
+    assert got.quality.value == "ok"
+
+
+def test_a_dissenting_estimator_is_outvoted_and_named() -> None:
+    v = synth_vitals(duration_s=WINDOW_S, rr_bpm=15.0, accel_rr_bpm=27.0, seed=7)
+    ecg, ppg, accel = _channels(v)
+    (got,) = rr_windows(ecg, ppg, accel, PROV)
+    assert isinstance(got, Computed)
+    assert got.value.estimators == ("ecg", "ppg")
+    assert got.value.n_available == 3
+    assert got.value.breaths_per_min == pytest.approx(15.0, abs=2.0)
+
+
+def test_three_way_disagreement_is_refused_not_averaged() -> None:
+    v = synth_vitals(
+        duration_s=WINDOW_S,
+        rr_bpm=15.0,
+        ecg_rr_bpm=11.0,
+        ppg_rr_bpm=19.0,
+        accel_rr_bpm=27.0,
+        seed=8,
+    )
+    ecg, ppg, accel = _channels(v)
+    assert rr_windows(ecg, ppg, accel, PROV) == (NotComputed("estimators_disagree"),)
+
+
+def test_one_estimator_is_not_enough() -> None:
+    v = synth_vitals(duration_s=WINDOW_S, seed=9)
+    ecg, _, _ = _channels(v)
+    assert rr_windows(ecg, None, None, PROV) == (NotComputed("insufficient_estimators"),)
+
+
+def _white(rng: np.random.Generator, fs: float) -> tuple[float, ...]:
+    return tuple(float(x) for x in rng.normal(0.0, 1.0, round(fs * WINDOW_S)))
+
+
+def test_noise_alone_never_produces_a_rate() -> None:
+    for seed in range(12):
+        rng = np.random.default_rng(seed)
+        ecg = _sig(_white(rng, 250.0), 250.0)
+        ppg = _sig(tuple(1000.0 + x for x in _white(rng, 100.0)), 100.0)
+        accel = _sig(_white(rng, 25.0), 25.0)
+        (got,) = rr_windows(ecg, ppg, accel, PROV)
+        assert isinstance(got, NotComputed), f"seed {seed} produced {got!r}"
+
+
+def test_a_gap_over_a_whole_window_yields_nothing_and_leaves_other_windows_alone() -> None:
+    v = synth_vitals(duration_s=96, rr_bpm=15.0, seed=10)
+    ecg, ppg, accel = _channels(v)
+    clean = rr_windows(ecg, ppg, accel, PROV)
+    assert len(clean) == 3
+    assert all(isinstance(r, Computed) for r in clean)
+    gapped = rr_windows(
+        _gapped(ecg, 32.0, 64.0), _gapped(ppg, 32.0, 64.0), _gapped(accel, 32.0, 64.0), PROV
+    )
+    assert gapped[0] == clean[0]
+    assert isinstance(gapped[1], NotComputed)
+    assert gapped[2] == clean[2]
+
+
+def test_window_coverage_is_that_of_the_least_covered_voter() -> None:
+    v = synth_vitals(duration_s=WINDOW_S, rr_bpm=15.0, seed=15)
+    ecg, ppg, accel = _channels(v)
+    (got,) = rr_windows(_gapped(ecg, 4.0, 12.0), ppg, accel, PROV)  # a quarter of the ECG missing
+    assert isinstance(got, Computed)
+    assert got.window.coverage == pytest.approx(0.75, abs=0.01)
+    assert got.quality.value == "degraded"
+
+
+def test_a_channel_below_the_coverage_floor_does_not_vote() -> None:
+    # a quarter of the ECG is missing (75% coverage) and what is left carries a different
+    # rate: at a 0.8 floor it must not vote, at the default it votes and is outvoted
+    v = synth_vitals(duration_s=WINDOW_S, rr_bpm=15.0, ecg_rr_bpm=27.0, seed=16)
+    ecg, ppg, accel = _channels(v)
+    thin = _gapped(ecg, 4.0, 12.0)
+    assert rr_from_ecg(thin.samples, thin.usable, thin.fs) is not None  # it could have voted
+    (floor,) = rr_windows(thin, ppg, accel, PROV, min_coverage=0.8)
+    assert isinstance(floor, Computed)
+    assert floor.value.n_available == 2
+    assert floor.value.estimators == ("accel", "ppg")
+    (default,) = rr_windows(thin, ppg, accel, PROV)
+    assert isinstance(default, Computed)
+    assert default.value.n_available == 3
+    assert default.value.estimators == ("accel", "ppg")
+
+
+def test_unmasked_garbage_in_a_ppg_gap_is_ignored() -> None:
+    v = synth_vitals(duration_s=60, seed=17)
+    samples = list(v.ppg)
+    lo, hi = round(20 * v.ppg_fs), round(35 * v.ppg_fs)
+    for i in range(lo, hi, round(0.8 * v.ppg_fs)):  # finite spikes at pulse-like spacing
+        samples[i] = 5000.0
+    usable = tuple(not (lo <= i < hi) for i in range(len(samples)))
+    pulses = detect_pulses(samples, usable, v.ppg_fs)
+    assert any(t < 20.0 for t in pulses.times_s)
+    assert not any(20.0 <= t < 35.0 for t in pulses.times_s)
+
+
+def test_beat_channels_without_breathing_modulation_do_not_vote() -> None:
+    for seed in range(8):
+        v = synth_vitals(
+            duration_s=WINDOW_S, rr_bpm=15.0, depth=0.0, ppg_baseline=0.0, noise=0.5, seed=seed
+        )
+        ecg, ppg, accel = _channels(v)
+        (got,) = rr_windows(ecg, ppg, accel, PROV)
+        assert got == NotComputed("insufficient_estimators"), f"seed {seed}: {got!r}"
+
+
+def test_an_accelerometer_with_no_breathing_motion_does_not_vote() -> None:
+    v = synth_vitals(duration_s=WINDOW_S, rr_bpm=15.0, accel_amp=0.0, seed=18)
+    ecg, ppg, accel = _channels(v)
+    (got,) = rr_windows(ecg, ppg, accel, PROV)
+    assert isinstance(got, Computed)
+    assert got.value.n_available == 2
+    assert got.value.estimators == ("ecg", "ppg")
+
+
+def test_agreement_picks_the_largest_group_within_tolerance() -> None:
+    got = agree({"ecg": 14.0, "ppg": 15.5, "accel": 24.0})
+    assert isinstance(got, RrValue)
+    assert got.estimators == ("ecg", "ppg")
+    assert got.breaths_per_min == pytest.approx(14.75)
+    assert got.spread_bpm == pytest.approx(1.5)
+    assert agree({"ecg": 14.0, "ppg": 20.0}) == NotComputed("estimators_disagree")
+    assert agree({"ecg": 14.0}) == NotComputed("insufficient_estimators")
+    assert agree({}) == NotComputed("insufficient_estimators")

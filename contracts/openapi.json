@@ -899,6 +899,69 @@
         "title": "NumberPresent",
         "type": "object"
       },
+      "NurseVitalsInput": {
+        "additionalProperties": false,
+        "description": "Nurse-entered NEWS2 inputs (POST /patients/{id}/vitals): any subset, at least one.\n\nBlood pressure is a pair. Omitted means not entered (the stored value is left alone);\nthere is no default and nothing is clamped: an impossible value is rejected.",
+        "properties": {
+          "acvpu": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Acvpu"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "diastolic": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "on_oxygen": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "spo2_scale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Spo2Scale"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "systolic": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "title": "NurseVitalsInput",
+        "type": "object"
+      },
       "PartialAdmitPatientInput": {
         "additionalProperties": false,
         "description": "AdmitPatientInput with every field optional (extraction results).",
@@ -2177,6 +2240,135 @@
         "title": "Trend",
         "type": "string"
       },
+      "UnscoredPatient": {
+        "additionalProperties": false,
+        "description": "Everything known about a patient before any score exists.\n\nThis is the state behind both a ranked row and a NOT RANKED row: scores, ranks and\nreasons are computed from it on read (never stored), so a recorded value re-ranks the\npatient. `signal_quality` and `last_update_s` are null for a patient with no patch.",
+        "properties": {
+          "admitting_context": {
+            "type": "string"
+          },
+          "age": {
+            "anyOf": [
+              {
+                "maximum": 150,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bed": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "labs": {
+            "$ref": "#/components/schemas/LabPanel"
+          },
+          "last_update_s": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mechanism": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sex": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "signal_quality": {
+            "anyOf": [
+              {
+                "maximum": 100,
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supporting": {
+            "type": "string"
+          },
+          "synthetic": {
+            "type": "boolean"
+          },
+          "tier_b": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TierBData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tier_c": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TierCData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trend": {
+            "$ref": "#/components/schemas/Trend"
+          },
+          "vital_history": {
+            "$ref": "#/components/schemas/VitalHistoryFull"
+          },
+          "vital_trends": {
+            "$ref": "#/components/schemas/VitalTrends"
+          },
+          "vitals": {
+            "$ref": "#/components/schemas/Vitals"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "age",
+          "sex",
+          "bed",
+          "admitting_context",
+          "trend",
+          "mechanism",
+          "supporting",
+          "vitals",
+          "vital_trends",
+          "vital_history",
+          "labs",
+          "tier_b",
+          "tier_c",
+          "signal_quality",
+          "last_update_s",
+          "synthetic"
+        ],
+        "title": "UnscoredPatient",
+        "type": "object"
+      },
       "VitalHistory": {
         "additionalProperties": false,
         "description": "One 15-minute bin of a vital. `value` is null for a gap: never zero, never filled (I1).",
@@ -2338,6 +2530,115 @@
           "spo2_scale"
         ],
         "title": "Vitals",
+        "type": "object"
+      },
+      "VitalsRecorded": {
+        "additionalProperties": false,
+        "description": "What was stored (the echo, with provenance) and where the patient stands now.",
+        "properties": {
+          "blood_pressure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BloodPressureMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "consciousness": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AcvpuMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "not_ranked_instruction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "not_ranked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "patient_id": {
+            "type": "string"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ranked": {
+            "type": "boolean"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "maximum": 20,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spo2_scale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Spo2ScaleMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supplemental_o2": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlagMeasurement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "patient_id",
+          "blood_pressure",
+          "consciousness",
+          "supplemental_o2",
+          "spo2_scale",
+          "ranked",
+          "rank",
+          "score",
+          "not_ranked_reason",
+          "not_ranked_instruction"
+        ],
+        "title": "VitalsRecorded",
         "type": "object"
       },
       "WardResponse": {

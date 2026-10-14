@@ -35,7 +35,14 @@ from .common import (
     Tier,
     Trend,
 )
-from .records import ClinicalNote, NewNote, Session, SessionRole
+from .records import (
+    ClinicalNote,
+    NewNote,
+    NurseVitalsInput,
+    Session,
+    SessionRole,
+    VitalsRecorded,
+)
 from .rows import (
     AbstainedRow,
     PatientDetail,
@@ -43,6 +50,7 @@ from .rows import (
     ScoreRow,
     TierAScore,
     TierBreakdown,
+    UnscoredPatient,
     WardResponse,
 )
 from .tiers import (
@@ -93,8 +101,11 @@ CONTRACT_MODELS: tuple[type[BaseModel], ...] = (
     PatientDetail,
     ClinicalNote,
     NewNote,
+    NurseVitalsInput,
     PatientSummary,
     Session,
+    UnscoredPatient,
+    VitalsRecorded,
     AdmitPatientInput,
     PartialAdmitPatientInput,
     LabExtractionResult,
@@ -103,7 +114,7 @@ CONTRACT_MODELS: tuple[type[BaseModel], ...] = (
 
 # Inputs entered by a person: optional fields may be omitted and default to None.
 INPUT_MODELS: frozenset[type[BaseModel]] = frozenset(
-    {PartialLabInput, AdmitPatientInput, PartialAdmitPatientInput}
+    {PartialLabInput, AdmitPatientInput, PartialAdmitPatientInput, NurseVitalsInput}
 )
 
 __all__ = [
@@ -128,6 +139,7 @@ __all__ = [
     "MeasurementAbsent",
     "NewNote",
     "NumberMeasurement",
+    "NurseVitalsInput",
     "PartialAdmitPatientInput",
     "PartialLabInput",
     "PatientDetail",
@@ -152,9 +164,11 @@ __all__ = [
     "TierCInput",
     "TierStatus",
     "Trend",
+    "UnscoredPatient",
     "VitalHistory",
     "VitalHistoryFull",
     "VitalTrends",
     "Vitals",
+    "VitalsRecorded",
     "WardResponse",
 ]

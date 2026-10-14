@@ -7,6 +7,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  getNotes,
   getPatient,
   getWard,
   listAllPatients,
@@ -65,7 +66,7 @@ function ids(w: WardResponse): string[] {
 let ward: WardResponse;
 
 beforeEach(async () => {
-  setActiveClinician(null);
+  setActiveClinician("rn-manalo"); // the charge nurse: all twelve patients
   ward = await getWard();
 });
 
@@ -158,7 +159,7 @@ describe("I4 abstention is an output", () => {
   it("an admitted patient starts NOT RANKED until the patch is applied", async () => {
     vi.resetModules(); // admitPatient mutates module state: use a fresh copy
     const fresh = await import("./fixtures");
-    fresh.setActiveClinician(null);
+    fresh.setActiveClinician("rn-manalo");
     const row = await fresh.admitPatient({
       lastName: "Test", firstName: "Case", dateOfBirth: "1970-01-01", age: 55,
       sex: "F", bed: "9Z", admissionRoute: "direct_admission",
@@ -241,7 +242,7 @@ describe("Tier C stays isolated and display-only", () => {
 describe("clinician scope (fixture stand-in for server-side filtering)", () => {
   for (const clinician of CLINICIANS) {
     it(`${clinician}: ward, list and detail agree and unassigned patients are unreachable`, async () => {
-      setActiveClinician(null);
+      setActiveClinician("rn-manalo");
       const everyone = ids(await getWard());
 
       setActiveClinician(clinician);
@@ -264,12 +265,25 @@ describe("clinician scope (fixture stand-in for server-side filtering)", () => {
   // ward, the list and the detail endpoint alike (OVERVIEW.md "Ward view"; the
   // server-side provider carries the same test).
   it("an unknown clinician id sees no patients (fail closed)", async () => {
-    setActiveClinician(null);
+    setActiveClinician("rn-manalo");
     const everyone = ids(await getWard());
     setActiveClinician("not-a-clinician");
     const w = await getWard();
     expect(ids(w)).toHaveLength(0);
     expect(await listAllPatients()).toHaveLength(0);
     for (const id of everyone) expect(await getPatient(id), id).toBeNull();
+  });
+});
+
+describe("no identity fails closed (the server answers 401)", () => {
+  it("signed-out sees nobody, through the ward, the list, the detail and the notes", async () => {
+    setActiveClinician("rn-manalo");
+    const everyone = ids(await getWard());
+    setActiveClinician(null);
+    const w = await getWard();
+    expect(ids(w)).toHaveLength(0);
+    expect(await listAllPatients()).toHaveLength(0);
+    for (const id of everyone) expect(await getPatient(id), id).toBeNull();
+    await expect(getNotes("p-001")).rejects.toThrow(/not found/i);
   });
 });

@@ -8,12 +8,15 @@ version = "0.1.0"
 description = "BioSentry Intelligence backend: contract schemas (CP1); API and domain code follow."
 requires-python = ">=3.11,<3.12"
 dependencies = [
+  "fastapi==0.143.0",
   "numpy==2.4.6",
   "pydantic==2.14.1",
+  "uvicorn==0.54.0",
 ]
 
 [project.optional-dependencies]
 dev = [
+  "httpx2==2.13.1",
   "hypothesis==6.169.1",
   "mypy==2.4.0",
   "pytest==9.1.1",

@@ -835,6 +835,28 @@
         "title": "MeasurementAbsent",
         "type": "object"
       },
+      "NewNote": {
+        "additionalProperties": false,
+        "description": "The body of POST /patients/{id}/notes. The server assigns id, time and the flag.",
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "author",
+          "role",
+          "content"
+        ],
+        "title": "NewNote",
+        "type": "object"
+      },
       "NumberMeasurement": {
         "additionalProperties": false,
         "properties": {
@@ -1537,6 +1559,32 @@
           "model_id"
         ],
         "title": "PatientExtractionResult",
+        "type": "object"
+      },
+      "PatientSummary": {
+        "additionalProperties": false,
+        "description": "One line of the patient picker (GET /patients): scoped to the caller.",
+        "properties": {
+          "bed": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ranked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "bed",
+          "ranked"
+        ],
+        "title": "PatientSummary",
         "type": "object"
       },
       "Provenance": {

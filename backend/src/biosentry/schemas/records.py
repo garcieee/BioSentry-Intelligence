@@ -27,3 +27,11 @@ class Session(Contract):
     clinician_id: str
     ward: str
     role: SessionRole
+
+
+class NewNote(Contract):
+    """The body of POST /patients/{id}/notes. The server assigns id, time and the flag."""
+
+    author: str
+    role: str
+    content: str

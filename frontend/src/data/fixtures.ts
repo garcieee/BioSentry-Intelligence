@@ -23,6 +23,7 @@ import type {
 
 interface SyntheticWard {
   readonly as_of: string;
+  readonly clinicians: Record<string, { readonly role: string; readonly patients: string[] }>;
   readonly ranked: ScoreRow[];
   readonly abstained: AbstainedRow[];
   readonly details: Record<
@@ -56,16 +57,11 @@ function present<T>(value: T, prov: Provenance): Measurement<T> {
   return { data: { present: true, value }, provenance: prov };
 }
 
-// --- Clinician-to-patient assignments (fixture-only, replaced by server auth in production) ---
+// --- Clinician-to-patient assignments (from the dataset; the server enforces this in production) ---
 
-const CLINICIAN_PATIENTS: Record<string, string[]> = {
-  "rn-delacruz": ["p-001", "p-002", "p-004", "p-006", "p-009", "p-012"],
-  "rn-reyes":    ["p-003", "p-005", "p-007", "p-008", "p-010", "p-011"],
-  "md-santos":   ["p-001", "p-002", "p-006", "p-008", "p-011"],
-  "md-aquino":   ["p-003", "p-007", "p-009", "p-010", "p-012"],
-  "rn-manalo":   ["p-001", "p-002", "p-003", "p-004", "p-005", "p-006",
-                  "p-007", "p-008", "p-009", "p-010", "p-011", "p-012"],
-};
+const CLINICIAN_PATIENTS: Record<string, string[]> = Object.fromEntries(
+  Object.entries(data.clinicians).map(([id, c]) => [id, [...c.patients]]),
+);
 
 let _activeClinician: string | null = null;
 
@@ -73,26 +69,23 @@ export function setActiveClinician(id: string | null): void {
   _activeClinician = id;
 }
 
-// null = unscoped. Only "no active clinician" (a dev/test seam: sign-out clears
-// it and the UI never fetches in that state) is unscoped; a clinician id with
-// no assignment entry fails CLOSED and sees nobody.
-function visiblePatientIds(): Set<string> | null {
-  if (!_activeClinician) return null;
-  const ids = CLINICIAN_PATIENTS[_activeClinician];
-  if (!ids) return new Set();
-  return new Set(ids);
+// Fails CLOSED: no identity and an unknown identity both see nobody (the server answers 401
+// and 403 respectively; here there is nobody to show).
+function visiblePatientIds(): Set<string> {
+  const ids = _activeClinician ? CLINICIAN_PATIENTS[_activeClinician] : undefined;
+  return new Set(ids ?? []);
+}
+
+function requireVisible(patientId: string): void {
+  if (!visiblePatientIds().has(patientId)) throw new Error(`Not found: ${patientId}`);
 }
 
 // --- Ward response ---
 
 export async function getWard(): Promise<WardResponse> {
   const allowed = visiblePatientIds();
-  const filteredRanked = allowed
-    ? ranked.filter((r) => allowed.has(r.id))
-    : ranked;
-  const filteredAbstained = allowed
-    ? abstained.filter((a) => allowed.has(a.id))
-    : abstained;
+  const filteredRanked = ranked.filter((r) => allowed.has(r.id));
+  const filteredAbstained = abstained.filter((a) => allowed.has(a.id));
 
   // Re-rank after filtering so ranks are contiguous
   const reRanked = filteredRanked.map((r, i) => ({ ...r, rank: i + 1 }));
@@ -118,10 +111,12 @@ for (const note of data.notes) {
 }
 
 export async function getNotes(patientId: string): Promise<ClinicalNote[]> {
+  requireVisible(patientId);
   return notesStore.get(patientId) ?? [];
 }
 
 export async function addNote(patientId: string, author: string, role: string, content: string): Promise<ClinicalNote> {
+  requireVisible(patientId);
   const note: ClinicalNote = {
     id: `n-${Date.now()}`,
     patient_id: patientId,
@@ -137,6 +132,7 @@ export async function addNote(patientId: string, author: string, role: string, c
 }
 
 export async function deleteNote(patientId: string, noteId: string): Promise<void> {
+  requireVisible(patientId);
   const existing = notesStore.get(patientId) ?? [];
   notesStore.set(patientId, existing.filter((n) => n.id !== noteId));
 }
@@ -150,7 +146,23 @@ function nextPatientId(): string {
   return `p-${String(next).padStart(3, "0")}`;
 }
 
+// The server's rules for a nurse-typed admission blood pressure (physical bounds, never clamped).
+export function checkAdmissionBloodPressure(text: string): { systolic: number; diastolic: number } {
+  const match = /^(\d{2,3})\/(\d{2,3})$/.exec(text);
+  if (match === null) throw new Error("blood pressure must be written systolic/diastolic");
+  const systolic = Number(match[1]);
+  const diastolic = Number(match[2]);
+  if (systolic < 50 || systolic > 300) throw new Error(`systolic ${systolic} is outside 50-300`);
+  if (diastolic < 20 || diastolic > 200) throw new Error(`diastolic ${diastolic} is outside 20-200`);
+  if (diastolic >= systolic) throw new Error("diastolic must be below systolic");
+  return { systolic, diastolic };
+}
+
 export async function admitPatient(input: AdmitPatientInput): Promise<AbstainedRow> {
+  if (!_activeClinician) throw new Error("Sign in to admit a patient");
+  if (input.initialBp !== undefined && input.initialBp !== null) {
+    checkAdmissionBloodPressure(input.initialBp);
+  }
   const id = nextPatientId();
   const row: AbstainedRow = {
     id,
@@ -164,14 +176,31 @@ export async function admitPatient(input: AdmitPatientInput): Promise<AbstainedR
     synthetic: true,
   };
   abstained.push(row);
+  CLINICIAN_PATIENTS[_activeClinician] = [...(CLINICIAN_PATIENTS[_activeClinician] ?? []), id];
   return row;
+}
+
+function oldestLabAgeHours(labs: Record<string, Measurement<number> | null>, nowMs: number): number | null {
+  let oldest: number | null = null;
+  for (const m of Object.values(labs)) {
+    if (m !== null && m.data.present) {
+      const age = Math.max(0, nowMs - Date.parse(m.provenance.observed_at)) / 3_600_000;
+      oldest = oldest === null ? age : Math.max(oldest, age);
+    }
+  }
+  return oldest === null ? null : Math.round(oldest * 10) / 10;
 }
 
 export async function enterLabResults(
   patientId: string,
   labs: PartialLabInput,
 ): Promise<LabPanel> {
-  const ts = new Date().toISOString();
+  requireVisible(patientId);
+  for (const [name, value] of Object.entries(labs)) {
+    if (typeof value === "number" && value < 0) throw new Error(`${name} cannot be negative`);
+  }
+  // Ward time is the dataset's as_of, so ages stay coherent with the generated labs.
+  const ts = data.as_of;
   const prov = labProv(ts);
   const idx = ranked.findIndex((r) => r.id === patientId);
   if (idx === -1) throw new Error(`Patient ${patientId} not found in ranked list`);
@@ -181,7 +210,7 @@ export async function enterLabResults(
     const value = labs[key];
     return value !== undefined && value !== null ? present(value, prov) : existing[key];
   };
-  const updated: LabPanel = {
+  const entries = {
     troponin: u("troponin"), ck_mb: u("ck_mb"), bnp: u("bnp"), nt_probnp: u("nt_probnp"),
     sodium: u("sodium"), potassium: u("potassium"), chloride: u("chloride"),
     magnesium: u("magnesium"), calcium: u("calcium"),
@@ -191,7 +220,10 @@ export async function enterLabResults(
     pt: u("pt"), inr: u("inr"),
     sgpt: u("sgpt"), sgot: u("sgot"),
     blood_glucose: u("blood_glucose"), lactate: u("lactate"),
-    freshness_hours: 0,
+  };
+  const updated: LabPanel = {
+    ...entries,
+    freshness_hours: oldestLabAgeHours(entries, Date.parse(ts)),
   };
   ranked[idx] = { ...ranked[idx], labs: updated } as ScoreRow;
   return updated;
@@ -243,8 +275,8 @@ export async function extractPatientFromFile(
 
 export async function listAllPatients(): Promise<Array<{ id: string; name: string; bed: string; ranked: boolean }>> {
   const allowed = visiblePatientIds();
-  const r = allowed ? ranked.filter((p) => allowed.has(p.id)) : ranked;
-  const a = allowed ? abstained.filter((p) => allowed.has(p.id)) : abstained;
+  const r = ranked.filter((p) => allowed.has(p.id));
+  const a = abstained.filter((p) => allowed.has(p.id));
   return [
     ...r.map((p) => ({ id: p.id, name: p.name, bed: p.bed, ranked: true })),
     ...a.map((p) => ({ id: p.id, name: p.name, bed: p.bed, ranked: false })),
@@ -252,8 +284,7 @@ export async function listAllPatients(): Promise<Array<{ id: string; name: strin
 }
 
 export async function getPatient(id: string): Promise<PatientDetail | null> {
-  const allowed = visiblePatientIds();
-  if (allowed && !allowed.has(id)) return null;
+  if (!visiblePatientIds().has(id)) return null;
   const row = ranked.find((r) => r.id === id);
   const detail = data.details[id];
   if (!row || !detail) return null;

@@ -24,6 +24,67 @@
     }
   ],
   "as_of": "2026-09-03T07:00:00Z",
+  "clinicians": {
+    "md-aquino": {
+      "patients": [
+        "p-003",
+        "p-007",
+        "p-009",
+        "p-010",
+        "p-012"
+      ],
+      "role": "md"
+    },
+    "md-santos": {
+      "patients": [
+        "p-001",
+        "p-002",
+        "p-006",
+        "p-008",
+        "p-011"
+      ],
+      "role": "md"
+    },
+    "rn-delacruz": {
+      "patients": [
+        "p-001",
+        "p-002",
+        "p-004",
+        "p-006",
+        "p-009",
+        "p-012"
+      ],
+      "role": "rn"
+    },
+    "rn-manalo": {
+      "patients": [
+        "p-001",
+        "p-002",
+        "p-003",
+        "p-004",
+        "p-005",
+        "p-006",
+        "p-007",
+        "p-008",
+        "p-009",
+        "p-010",
+        "p-011",
+        "p-012"
+      ],
+      "role": "charge_rn"
+    },
+    "rn-reyes": {
+      "patients": [
+        "p-003",
+        "p-005",
+        "p-007",
+        "p-008",
+        "p-010",
+        "p-011"
+      ],
+      "role": "rn"
+    }
+  },
   "details": {
     "p-001": {
       "tier_breakdown": {
@@ -8997,5 +9058,6 @@
     }
   ],
   "seed": 20260903,
-  "synthetic": true
+  "synthetic": true,
+  "ward": "W4"
 }

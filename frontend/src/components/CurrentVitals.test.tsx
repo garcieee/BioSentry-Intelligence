@@ -8,7 +8,7 @@ import { MeasurementDisplay } from "./MeasurementDisplay";
 let patients: PatientDetail[];
 
 beforeEach(async () => {
-  setActiveClinician(null);
+  setActiveClinician("rn-manalo");
   const ward = await getWard();
   const loaded = await Promise.all(ward.ranked.map((r) => getPatient(r.id)));
   patients = loaded.filter((p): p is PatientDetail => p !== null);

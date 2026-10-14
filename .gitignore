@@ -13,3 +13,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .hypothesis/
+
+# Local working documents (the plan and the project log): never committed
+/PLAN.md
+/PROJECT.md

@@ -19,7 +19,7 @@ Nothing is interpolated, resampled or filled; a gap is a gap (I1).
 | `detect_beats` | R-peak times, per-beat validity, run id, R amplitude | (a run under 3 s yields no beats) |
 | `hrv_window` / `compute_hrv` | RMSSD, SDNN, mean HR, n NN, excluded count, NN coverage | `gap_longer_than_20s`, `irregular_rhythm`, `insufficient_valid_nn`, `nn_coverage_below_75pct`, `insufficient_consecutive_nn` |
 | `hr_burden` | minutes at or above 110 bpm over **valid** minutes, with coverage | `coverage_below_minimum`, `no_minutes` |
-| `robust_baseline`, `robust_z` | in-admission median/MAD and z | `baseline_not_established`, `baseline_has_no_spread` |
+| `robust_baseline`, `robust_z` | in-admission median/MAD and z | `baseline_not_established`, `baseline_has_no_spread`, `value_not_finite` |
 | `pi_window` / `compute_pi` | perfusion index (100 x AC / DC, window median), pulse rate | `too_few_valid_pulses`, `low_signal_quality`, `dc_not_positive`, `pulse_rate_disagrees_with_ecg` |
 | `rr_windows` | breaths/min, which estimators agreed, spread, how many voted | `insufficient_estimators`, `estimators_disagree` |
 
@@ -49,22 +49,35 @@ Nothing is interpolated, resampled or filled; a gap is a gap (I1).
 
 ## Design parameters (from the literature or tuned on synthetic signals; none validated on patch data)
 
-| Parameter | Value | Basis |
-|---|---|---|
-| RMSSD / SDNN minimum valid NN | 10 s / 30 s | Munoz 2015, PLoS One 10(9):e0138921 |
-| Missing-beat and gap limits | 25% missing, bursts over 20 s | Cajal 2022, Sensors 22(15):5774 (2 min segments; its time-domain limit is 35%, RMSSD alone 25%) |
-| Ectopic interval | more than 20% from the local median | design |
-| QRS threshold | 0.2 x median of the strongest tenth of block maxima | design, tuned on synthetic ECG |
-| RR estimator agreement | within 3 breaths/min, at least 2 of 3 | design |
-| RR spectral prominence | peak / mean power of at least 8 | tuned: noise alone median 3.8, max 7.1; 6 gave false votes |
-| PPG pulse rate vs ECG rate | within 20% | design |
+| Stage | Parameter | Value | Basis |
+|---|---|---|---|
+| ECG beats | smallest usable run searched | 3 s | design |
+| ECG beats | refractory period | 0.25 s | design |
+| ECG beats | QRS threshold | 0.2 x median of the strongest tenth of 0.25 s block maxima of slope energy | design, tuned on synthetic ECG |
+| ECG beats | per-beat template correlation to count as valid | at least 0.6 (window 0.2 s before to 0.4 s after the R peak) | design |
+| HRV | plausible interval | 0.3-2.0 s | design |
+| HRV | ectopic interval | more than 20% from the median of up to 5 neighbours each side | design |
+| HRV | irregular rhythm | ectopic share of plausible intervals above 30% | design |
+| HRV | valid NN needed | RMSSD 10 s, SDNN 30 s | Munoz 2015, PLoS One 10(9):e0138921 |
+| HRV | NN coverage / longest gap | at least 75% / at most 20 s | Cajal 2022, Sensors 22(15):5774 (2 min segments; its time-domain limit is 35% missing, RMSSD alone 25%) |
+| Burden | threshold / minimum coverage | 110 bpm / 50% of minutes valid | design |
+| Baseline | horizon / minimum valid minutes | last 360 min / 60 | design |
+| PPG pulses | smallest usable run / refractory / foot search | 5 s / 0.3 s / 0.6 s | design |
+| PPG pulses | peak threshold / template correlation | 0.35 x typical pulse amplitude / at least 0.7 | design |
+| Perfusion index | valid pulses needed / valid share | 10 / at least 50% | design |
+| Perfusion index | pulse rate vs ECG rate | within 20% | design |
+| RR | band | 6-30 breaths/min | plausible adult range |
+| RR | agreement | within 3 breaths/min, at least 2 of 3 estimators | design |
+| RR | spectral prominence (peak / mean band power) | at least 8 | tuned: noise alone median 3.8, max 7.1; 6 gave false votes |
+| RR | valid beats needed / accelerometer minimum run | 8 / 20 s | design |
+| RR | channel coverage floor to vote | 50% of the window | design |
 
 ## Evidence
 
 Pipeline checks on exact synthetic ECG, PPG and accelerometer signals; **not a performance
 claim**. R-peak F1 1.00 clean, at 0.08 mV noise and at 32-150 bpm; 0.99 with PVCs; HRV and RR
-refuse rather than guess at 0.15 mV noise. The test suites are mutation-checked (M2a seven
-faults, M2b twelve) and a structural test fails if any module under `tier_b/` imports
+refuse rather than guess at 0.15 mV noise. The test suites are mutation-checked (deliberate faults
+are injected into temporary copies and each must fail a test) and a structural test fails if any module under `tier_b/` imports
 SciPy or pandas or uses interpolation, resampling or fill functions.
 
 ## Limits

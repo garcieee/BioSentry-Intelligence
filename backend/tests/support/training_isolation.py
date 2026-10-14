@@ -25,9 +25,9 @@ ALLOWED_IMPORTS: tuple[str, ...] = ()
 
 CODE_SUFFIXES = frozenset({".py"})
 TEXT_SUFFIXES = frozenset(
-    {".toml", ".cfg", ".ini", ".yaml", ".yml", ".json", ".txt", ".sh", ".bash", ".zsh"}
+    {".toml", ".cfg", ".ini", ".yaml", ".yml", ".json", ".txt", ".sh", ".bash", ".zsh", ".env"}
 )
-TEXT_NAMES = frozenset({"Makefile", "Dockerfile"})
+TEXT_NAMES = frozenset({"Makefile", "Dockerfile", ".env"})
 UNSCANNABLE_SUFFIXES = frozenset({".ipynb"})
 # Environments and tool caches. None can hold committed code (all are git-ignored or git's own).
 SKIP_DIRS = frozenset(
@@ -56,7 +56,7 @@ DATASET_PATH = re.compile(
     r"(?<![A-Za-z0-9_])data[\\/\x00]+synthetic(?![A-Za-z0-9_])|synthetic\.json", re.IGNORECASE
 )
 DATASET_VARIABLE = re.compile("BIOSENTRY_DATASET", re.IGNORECASE)
-PACKAGE_STRING = re.compile(r"\bbiosentry\.[a-z_]")
+PACKAGE_STRING = re.compile(r"\bbiosentry\b(?!-)")  # `biosentry-training` is our own name
 
 
 @dataclass(frozen=True)
@@ -139,10 +139,9 @@ def scan_source(
     """Violations in one Python source. A file that does not parse fails: it cannot be checked."""
     try:
         tree = ast.parse(source)
-    except SyntaxError as error:
-        return [
-            Violation(name, error.lineno or 1, "unparseable", "cannot be parsed, so not checked")
-        ]
+    except (SyntaxError, ValueError) as error:  # ValueError: a lone surrogate, or NUL on older 3.x
+        line = getattr(error, "lineno", None) or 1
+        return [Violation(name, line, "unparseable", "cannot be parsed, so not checked")]
     docstrings = {
         id(node.value)
         for node in ast.walk(tree)

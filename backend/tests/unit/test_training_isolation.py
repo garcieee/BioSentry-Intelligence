@@ -157,12 +157,28 @@ def test_the_variable_that_points_at_the_dataset_is_flagged(source: str) -> None
     assert _kinds(source) == {"dataset-variable"}
 
 
-def test_running_the_application_package_as_a_subprocess_is_flagged() -> None:
-    assert _kinds('run(["python", "-m", "biosentry.sim", "--out", "x"])\n') == {"package-string"}
+@pytest.mark.parametrize(
+    "source",
+    [
+        'run(["python", "-m", "biosentry.sim", "--out", "x"])\n',
+        'run(["python", "-m", "biosentry"])\n',
+        'run("python -m biosentry --out x", shell=True)\n',
+        'PACKAGE = "backend/src/biosentry/sim"\n',
+        'NAME = "biosentry"\n',
+    ],
+    ids=["dotted-module", "bare-package", "command-string", "source-path", "package-name"],
+)
+def test_naming_the_application_package_in_a_string_is_flagged(source: str) -> None:
+    assert _kinds(source) == {"package-string"}
 
 
-def test_a_file_that_does_not_parse_fails_closed() -> None:
-    assert _kinds("def (:\n") == {"unparseable"}
+@pytest.mark.parametrize(
+    "source",
+    ["def (:\n", "x = 1\x00\n", "x = 1  # \ud800\n"],
+    ids=["syntax", "nul-byte", "lone-surrogate"],
+)
+def test_a_file_that_does_not_parse_fails_closed(source: str) -> None:
+    assert _kinds(source) == {"unparseable"}
 
 
 def test_violations_carry_file_and_line() -> None:
@@ -183,6 +199,7 @@ def test_violations_carry_file_and_line() -> None:
         "import biosentry_training_helpers\n",
         'NAME = "biosentry-training"\n',
         'HOST = "mybiosentry.example"\n',
+        'LABEL = "biosentry_training"\n',
         'print("BioSentry rhythm head spike")\n',
         "import importlib.metadata\nimportlib.metadata.version('torch')\n",
         'path = "metadata/synthetic"\n',
@@ -200,6 +217,7 @@ def test_violations_carry_file_and_line() -> None:
         "lookalike-top-level-name",
         "distribution-name",
         "inside-a-longer-word",
+        "underscore-continues-the-word",
         "camel-case-brand",
         "importlib-metadata",
         "word-boundary-before",
@@ -282,6 +300,8 @@ def test_the_walk_reads_nested_code_and_reports_relative_paths(tmp_path: Path) -
         "ci.yaml",
         "ci.yml",
         "out.json",
+        ".env",
+        "prod.env",
         "pins.txt",
         "Makefile",
         "Dockerfile",
@@ -328,11 +348,25 @@ def test_only_environment_and_cache_directories_are_skipped(tmp_path: Path) -> N
     bad = "import biosentry\n"
     scan = _tree(
         tmp_path,
-        {".venv/lib/x.py": bad, "venv/x.py": bad, "data/x.py": bad, "out/x.py": bad},
+        {
+            ".venv/lib/x.py": bad,
+            "venv/x.py": bad,
+            "data/x.py": bad,
+            "out/x.py": bad,
+            "training/x.py": bad,
+        },
     )
-    assert sorted(v.path for v in scan.violations) == ["data/x.py", "out/x.py", "venv/x.py"]
-    assert {".venv", ".git", "__pycache__"} <= SKIP_DIRS
-    assert not {"venv", "data", "out", "src"} & SKIP_DIRS
+    assert sorted(v.path for v in scan.violations) == [
+        "data/x.py",
+        "out/x.py",
+        "training/x.py",
+        "venv/x.py",
+    ]
+
+
+def test_the_skipped_directories_are_exactly_the_reviewed_set() -> None:
+    reviewed = {".git", ".venv", "__pycache__", ".mypy_cache", ".ruff_cache", ".pytest_cache"}
+    assert reviewed == SKIP_DIRS
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges on Windows")

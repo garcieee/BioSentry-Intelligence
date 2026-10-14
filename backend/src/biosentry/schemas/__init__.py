@@ -35,8 +35,16 @@ from .common import (
     Tier,
     Trend,
 )
-from .records import ClinicalNote, Session, SessionRole
-from .rows import AbstainedRow, PatientDetail, ScoreRow, TierAScore, TierBreakdown, WardResponse
+from .records import ClinicalNote, NewNote, Session, SessionRole
+from .rows import (
+    AbstainedRow,
+    PatientDetail,
+    PatientSummary,
+    ScoreRow,
+    TierAScore,
+    TierBreakdown,
+    WardResponse,
+)
 from .tiers import (
     EscalationReason,
     EscalationRule,
@@ -84,6 +92,8 @@ CONTRACT_MODELS: tuple[type[BaseModel], ...] = (
     TierBreakdown,
     PatientDetail,
     ClinicalNote,
+    NewNote,
+    PatientSummary,
     Session,
     AdmitPatientInput,
     PartialAdmitPatientInput,
@@ -116,11 +126,13 @@ __all__ = [
     "LabExtractionResult",
     "LabPanel",
     "MeasurementAbsent",
+    "NewNote",
     "NumberMeasurement",
     "PartialAdmitPatientInput",
     "PartialLabInput",
     "PatientDetail",
     "PatientExtractionResult",
+    "PatientSummary",
     "Provenance",
     "ProvenanceSource",
     "QualityLevel",

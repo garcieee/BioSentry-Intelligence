@@ -77,3 +77,12 @@ class TierBreakdown(Contract):
 class PatientDetail(ScoreRow):
     vital_history: VitalHistoryFull
     tier_breakdown: TierBreakdown
+
+
+class PatientSummary(Contract):
+    """One line of the patient picker (GET /patients): scoped to the caller."""
+
+    id: str
+    name: str
+    bed: str
+    ranked: Flag

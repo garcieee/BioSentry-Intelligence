@@ -215,6 +215,15 @@ export interface components {
             readonly present: false;
             readonly reason: string;
         };
+        /**
+         * NewNote
+         * @description The body of POST /patients/{id}/notes. The server assigns id, time and the flag.
+         */
+        readonly NewNote: {
+            readonly author: string;
+            readonly content: string;
+            readonly role: string;
+        };
         /** NumberMeasurement */
         readonly NumberMeasurement: {
             readonly data: components["schemas"]["NumberPresent"] | components["schemas"]["MeasurementAbsent"];
@@ -357,6 +366,16 @@ export interface components {
             readonly model_id: string;
             readonly synthetic: boolean;
             readonly values: components["schemas"]["PartialAdmitPatientInput"];
+        };
+        /**
+         * PatientSummary
+         * @description One line of the patient picker (GET /patients): scoped to the caller.
+         */
+        readonly PatientSummary: {
+            readonly bed: string;
+            readonly id: string;
+            readonly name: string;
+            readonly ranked: boolean;
         };
         /**
          * Provenance
@@ -591,12 +610,14 @@ export type FlagPresent = components['schemas']['FlagPresent'];
 export type LabExtractionResult = components['schemas']['LabExtractionResult'];
 export type LabPanel = components['schemas']['LabPanel'];
 export type MeasurementAbsent = components['schemas']['MeasurementAbsent'];
+export type NewNote = components['schemas']['NewNote'];
 export type NumberMeasurement = components['schemas']['NumberMeasurement'];
 export type NumberPresent = components['schemas']['NumberPresent'];
 export type PartialAdmitPatientInput = components['schemas']['PartialAdmitPatientInput'];
 export type PartialLabInput = components['schemas']['PartialLabInput'];
 export type PatientDetail = components['schemas']['PatientDetail'];
 export type PatientExtractionResult = components['schemas']['PatientExtractionResult'];
+export type PatientSummary = components['schemas']['PatientSummary'];
 export type Provenance = components['schemas']['Provenance'];
 export type ProvenanceSource = components['schemas']['ProvenanceSource'];
 export type QualityLevel = components['schemas']['QualityLevel'];

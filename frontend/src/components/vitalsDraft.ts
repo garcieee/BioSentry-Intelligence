@@ -51,8 +51,8 @@ export type Checked =
 
 const WHOLE_NUMBER = /^\d{1,3}$/;
 
-function wholeNumber(text: string): number | null {
-  const trimmed = text.trim();
+/** `trimmed` has had its surrounding spaces removed by the caller, once, in check(). */
+function wholeNumber(trimmed: string): number | null {
   return WHOLE_NUMBER.test(trimmed) ? Number(trimmed) : null;
 }
 

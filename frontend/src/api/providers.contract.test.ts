@@ -277,6 +277,8 @@ describe.skipIf(!API_URL)("http provider: nurse-recorded vitals", () => {
       [80, 120],
       [0, 0], // zero is missing, never a reading
       [120, 0],
+      [120.5, 80], // the server's integers are strict: a fraction is refused by both
+      [120, 80.5],
       [130, 84], // an ordinary reading
     ];
     for (const [systolic, diastolic] of pairs) {

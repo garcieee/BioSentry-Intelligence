@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AbstainedRow as AbstainedRowType, Session, VitalsRecorded, WardResponse } from "../types";
-import { canRecordVitals, getWard } from "../api";
+import { getWard } from "../api";
 import { WardRow } from "../components/WardRow";
-import { AbstainedRow } from "../components/AbstainedRow";
 import { SessionMenu } from "../components/SessionMenu";
 import { standing } from "../components/vitalsDraft";
+import { NotRankedSection } from "./NotRankedSection";
 import styles from "./Ward.module.css";
 
 interface Props {
@@ -124,29 +124,11 @@ export function Ward({ session, onSignOut }: Props) {
           ))}
         </div>
 
-        {data.abstained.length > 0 && (
-          <>
-            <div className={styles.sectionHeader}>
-              <p className={styles.eyebrow}>
-                Not ranked ({data.abstained.length})
-              </p>
-              <p className={styles.sortInfo}>
-                Action required to enable scoring
-              </p>
-            </div>
-            <div className={styles.rowList}>
-              {data.abstained.map((row) => (
-                <AbstainedRow
-                  key={row.id}
-                  row={row}
-                  canRecord={canRecordVitals}
-                  clinicianId={session.clinician_id}
-                  onRecorded={handleRecorded}
-                />
-              ))}
-            </div>
-          </>
-        )}
+        <NotRankedSection
+          rows={data.abstained}
+          clinicianId={session.clinician_id}
+          onRecorded={handleRecorded}
+        />
       </main>
 
       <footer className={styles.footer}>

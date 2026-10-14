@@ -106,10 +106,30 @@ describe("bounded blood pressure entry (the server's bounds, both edges)", () =>
     expect(problemsOf(draft({ diastolic: "80" })).systolic).toBeDefined();
   });
 
-  it("takes whole numbers only", () => {
-    for (const text of ["12.5", "-5", "1e2", "abc", "1,20", "0x10", "١٢٠", "1000"]) {
+  it("takes whole numbers only, and says so for text that would otherwise be in bounds", () => {
+    // Each of these is, or parses to, a value inside the bounds: the refusal must come from
+    // the shape of the text, not from the range check.
+    const notWhole = ["120.5", "12e1", "+120", "1 20", "0x78", "\u0661\u0662\u0660", "120.", "1_20"];
+    for (const text of notWhole) {
+      expect(problemsOf(draft({ systolic: text, diastolic: "80" })).systolic, text).toBe(
+        "Whole numbers only.",
+      );
+    }
+    for (const text of ["80.5", "8e1", "+80", "0x50", "\u0668\u0660", "80.", "8_0"]) {
+      expect(problemsOf(draft({ systolic: "120", diastolic: text })).diastolic, text).toBe(
+        "Whole numbers only.",
+      );
+    }
+    for (const text of ["-5", "1000", "abc", "1,20"]) {
       expect(problemsOf(draft({ systolic: text, diastolic: "80" })).systolic, text).toBeDefined();
     }
+  });
+
+  it("accepts a plain whole number with spaces around it", () => {
+    expect(inputOf(draft({ systolic: "  120  ", diastolic: "\t80\n" }))).toEqual({
+      systolic: 120,
+      diastolic: 80,
+    });
   });
 
   it("rejects zero: zero is missing, not a reading", () => {

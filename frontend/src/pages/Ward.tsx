@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
-import type { WardResponse, Session } from "../types";
+import { useCallback, useEffect, useState } from "react";
+import type { AbstainedRow as AbstainedRowType, Session, VitalsRecorded, WardResponse } from "../types";
 import { getWard } from "../api";
 import { WardRow } from "../components/WardRow";
-import { AbstainedRow } from "../components/AbstainedRow";
 import { SessionMenu } from "../components/SessionMenu";
+import { standing } from "../components/vitalsDraft";
+import { NotRankedSection } from "./NotRankedSection";
 import styles from "./Ward.module.css";
 
 interface Props {
@@ -14,9 +15,19 @@ interface Props {
 export function Ward({ session, onSignOut }: Props) {
   const [data, setData] = useState<WardResponse | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     getWard().then(setData);
+  }, []);
+
+  // A recorded value changes a patient's standing, which only the server can compute: say
+  // what it said, then fetch the ward again so the ranking on screen is the server's.
+  const handleRecorded = useCallback((row: AbstainedRowType, recorded: VitalsRecorded) => {
+    setNotice(`Recorded for ${row.name}. ${standing(recorded)}`);
+    getWard()
+      .then(setData)
+      .catch(() => setNotice("Recorded, but the ward could not be refreshed. Reload to see the ranking."));
   }, []);
 
   useEffect(() => {
@@ -98,29 +109,26 @@ export function Ward({ session, onSignOut }: Props) {
           </p>
         </div>
 
+        {notice !== null && (
+          <p className={styles.notice} role="status">
+            {notice}{" "}
+            <button type="button" className={styles.noticeClose} onClick={() => setNotice(null)}>
+              Dismiss
+            </button>
+          </p>
+        )}
+
         <div className={styles.rowList}>
           {data.ranked.map((row) => (
             <WardRow key={row.id} row={row} />
           ))}
         </div>
 
-        {data.abstained.length > 0 && (
-          <>
-            <div className={styles.sectionHeader}>
-              <p className={styles.eyebrow}>
-                Not ranked ({data.abstained.length})
-              </p>
-              <p className={styles.sortInfo}>
-                Action required to enable scoring
-              </p>
-            </div>
-            <div className={styles.rowList}>
-              {data.abstained.map((row) => (
-                <AbstainedRow key={row.id} row={row} />
-              ))}
-            </div>
-          </>
-        )}
+        <NotRankedSection
+          rows={data.abstained}
+          clinicianId={session.clinician_id}
+          onRecorded={handleRecorded}
+        />
       </main>
 
       <footer className={styles.footer}>

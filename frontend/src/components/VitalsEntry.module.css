@@ -1,0 +1,169 @@
+/* ============================================================
+   Vitals entry -- the nurse's way out of NOT RANKED
+   Bounded fields, an echo of what will be stored, the server's
+   reasons shown as written. No border radius (design language).
+   ============================================================ */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--ground);
+  border: 1px solid var(--border);
+  max-width: 560px;
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.sub,
+.hint {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--label);
+  line-height: 1.5;
+}
+
+.group {
+  border: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.legend {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--label);
+  padding: 0;
+  margin-bottom: var(--sp-1);
+}
+
+.pair {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fieldLabel {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--label);
+}
+
+.input {
+  width: 96px;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  padding: var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--ink);
+  outline: 2px solid var(--ink);
+}
+
+.slash {
+  font-size: 20px;
+  padding-bottom: var(--sp-2);
+  color: var(--label);
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.choice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.echo {
+  border-left: 2px solid var(--border);
+  padding-left: var(--sp-3);
+}
+
+.echoTitle {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--label);
+}
+
+.echoList {
+  list-style: none;
+  font-size: 14px;
+  margin-top: var(--sp-1);
+}
+
+.problem,
+.failure {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.failure {
+  border: 1px solid var(--ink);
+  padding: var(--sp-2) var(--sp-3);
+}
+
+.standing {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.primary,
+.secondary {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--button);
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.primary {
+  background: var(--button);
+  color: var(--button-ink);
+}
+
+.primary:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.secondary {
+  background: none;
+  color: var(--ink);
+}

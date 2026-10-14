@@ -73,6 +73,30 @@
   margin-top: 2px;
 }
 
+.action {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: var(--sp-1) var(--sp-3);
+  margin-top: var(--sp-2);
+  cursor: pointer;
+}
+
+.action:hover {
+  border-color: var(--ink);
+}
+
+/* The entry form opens under the row, across all three columns. */
+.entry {
+  grid-column: 1 / -1;
+  padding: var(--sp-3) var(--sp-3) 0;
+}
+
 /* ---- Responsive: phone ---- */
 
 @media (max-width: 480px) {

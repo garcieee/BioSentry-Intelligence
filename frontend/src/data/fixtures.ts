@@ -5,6 +5,7 @@
 // Replaced by an API fetch client at CP6.
 
 import synthetic from "../../../data/synthetic/synthetic.json";
+import { DIASTOLIC_BOUNDS, SYSTOLIC_BOUNDS } from "../api/bounds";
 import type {
   AbstainedRow,
   AdmitPatientInput,
@@ -153,8 +154,14 @@ export function checkAdmissionBloodPressure(text: string): { systolic: number; d
   if (match === null) throw new Error("blood pressure must be written systolic/diastolic");
   const systolic = Number(match[1]);
   const diastolic = Number(match[2]);
-  if (systolic < 20 || systolic > 300) throw new Error(`systolic ${systolic} is outside 20-300`);
-  if (diastolic < 10 || diastolic > 200) throw new Error(`diastolic ${diastolic} is outside 10-200`);
+  const { min: sMin, max: sMax } = SYSTOLIC_BOUNDS;
+  const { min: dMin, max: dMax } = DIASTOLIC_BOUNDS;
+  if (systolic < sMin || systolic > sMax) {
+    throw new Error(`systolic ${systolic} is outside ${sMin}-${sMax}`);
+  }
+  if (diastolic < dMin || diastolic > dMax) {
+    throw new Error(`diastolic ${diastolic} is outside ${dMin}-${dMax}`);
+  }
   if (diastolic >= systolic) throw new Error("diastolic must be below systolic");
   return { systolic, diastolic };
 }

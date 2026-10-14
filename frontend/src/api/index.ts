@@ -60,6 +60,12 @@ export const listAllPatients = provider.listAllPatients;
 export const admitPatient = provider.admitPatient;
 export const enterLabResults = provider.enterLabResults;
 export const recordVitals = provider.recordVitals;
+
+/**
+ * Whether this build can record nurse-entered vitals. Only the API re-ranks (D4: the frontend
+ * never computes a score), so the fixture provider offers no entry; it rejects the call.
+ */
+export const canRecordVitals = !USE_FIXTURES;
 export const extractLabsFromFile = provider.extractLabsFromFile;
 export const extractPatientFromFile = provider.extractPatientFromFile;
 

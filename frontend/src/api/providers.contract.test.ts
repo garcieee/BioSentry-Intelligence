@@ -12,6 +12,8 @@
 import { describe, expect, it } from "vitest";
 import synthetic from "../../../data/synthetic/synthetic.json";
 import type { AdmitPatientInput } from "../types";
+import { EMPTY_DRAFT, check } from "../components/vitalsDraft";
+import { DIASTOLIC_BOUNDS, SYSTOLIC_BOUNDS } from "./bounds";
 import { setAuthToken } from "./client";
 import type { ApiProvider } from "./contract";
 import { fixtureProvider, setActiveClinician } from "./providers/fixture";
@@ -257,6 +259,37 @@ describe.skipIf(!API_URL)("http provider: nurse-recorded vitals", () => {
     expect(after.ranked.map((r) => r.id)).toContain("p-004");
     expect(after.abstained.map((a) => a.id)).not.toContain("p-004");
     expect(await httpProvider.getPatient("p-004")).not.toBeNull();
+  });
+
+  it("the entry form's check agrees with the server on a grid around both bounds", async () => {
+    httpSignIn("rn-delacruz");
+    const { min: sMin, max: sMax } = SYSTOLIC_BOUNDS;
+    const { min: dMin, max: dMax } = DIASTOLIC_BOUNDS;
+    const pairs: [number, number][] = [
+      [sMin, dMin], // both floors: accepted
+      [sMin - 1, dMin],
+      [sMin, dMin - 1],
+      [sMax, dMax], // both ceilings: accepted
+      [sMax + 1, dMax],
+      [sMax, dMax + 1],
+      [45, 20], // a true critical reading: accepted
+      [120, 120], // diastolic not below systolic
+      [80, 120],
+      [0, 0], // zero is missing, never a reading
+      [120, 0],
+      [120.5, 80], // the server's integers are strict: a fraction is refused by both
+      [120, 80.5],
+      [130, 84], // an ordinary reading
+    ];
+    for (const [systolic, diastolic] of pairs) {
+      const clientOk = check({
+        ...EMPTY_DRAFT,
+        systolic: String(systolic),
+        diastolic: String(diastolic),
+      }).ok;
+      const serverOk = (await attempt(() => httpProvider.recordVitals("p-004", { systolic, diastolic }))).ok;
+      expect(clientOk, `${systolic}/${diastolic}`).toBe(serverOk);
+    }
   });
 
   it("the fixture provider cannot re-rank and says so", async () => {

@@ -57,7 +57,7 @@ contract-check: contract-test contract
 
 BACKEND := backend
 
-.PHONY: be-install be-lint be-fmt be-test be-check
+.PHONY: be-install be-lint be-fmt be-test be-check data
 
 # Direct deps are exact in pyproject.toml; constraints.txt pins the transitive closure.
 be-install:
@@ -77,3 +77,7 @@ be-test:
 	$(PYTHON) -m pytest $(BACKEND)
 
 be-check: be-lint be-test
+
+# Regenerate data/synthetic/synthetic.json (py-test fails if the committed file is stale).
+data:
+	$(PYTHON) -m biosentry.sim --out data/synthetic/synthetic.json

@@ -69,7 +69,7 @@ Nothing is interpolated, resampled or filled; a gap is a gap (I1).
 | RR | band | 6-30 breaths/min | plausible adult range |
 | RR | agreement | within 3 breaths/min, at least 2 of 3 estimators | design |
 | RR | spectral prominence (peak / mean band power) | at least 8 | tuned: noise alone median 3.8, max 7.1; 6 gave false votes |
-| RR | valid beats needed / accelerometer minimum run | 8 / 20 s | design; the longest run must reach about 30 s, see Limits |
+| RR | valid beats needed / accelerometer minimum run | 8 / 20 s | design; the longest run must reach about 30 s: only an edge gap up to about 2 s keeps the vote in a 32 s window, see Limits |
 | RR | channel coverage floor to vote | 50% of the window | design |
 
 ## Evidence
@@ -92,11 +92,11 @@ SciPy or pandas or uses interpolation, resampling or fill functions.
 - **The accelerometer vote needs a contiguous run of about 30 s.** Its spectral prominence (peak
   over mean band power) of a clean tone grows with run length, so the gate of 8 is crossed only
   at about 30 s, whatever the amplitude, and the estimator uses the longest gap-free run. In a
-  32 s window a gap at either edge of 2 s or more silences it, and a gap near the middle splits
-  the window into runs under 20 s, so even about 1 s kills the vote: the 20 s minimum run is not
-  the only limit. Consequence: a window with a gap loses its third vote and the 2-of-3
-  agreement refuses more often (`NotComputed`) than the 20 s rule suggests. A 64 s window
-  tolerates a 6 s gap because a 30 s or longer run survives (tested). Measured on synthetic
-  signals at 15 breaths/min; real noise only lowers prominence.
+  32 s window only an edge gap of up to about 2 s keeps the vote (more than about 2 s abstains),
+  and any gap in the middle, however short, silences it: the 20 s minimum run is not the only
+  limit. Consequence: a window with a gap loses its third vote and the 2-of-3 agreement refuses
+  more often (`NotComputed`) than the 20 s rule suggests. A 64 s window tolerates a 6 s gap
+  because a 30 s or longer run survives (tested). Measured on synthetic signals at 15
+  breaths/min; real noise only lowers prominence.
 - **Freedom to operate not cleared**: respiratory-rate-from-ECG/PPG methods fall under an
   Oxford patent (US11103155B2, to about 2038). Research and competition use only until cleared.

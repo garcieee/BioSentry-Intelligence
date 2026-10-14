@@ -811,3 +811,148 @@ def test_the_burden_error_is_absolute_when_a_method_underestimates() -> None:
     got = rb.baseline_stats([rec], head_threshold=0.2, base_threshold=0.5)
     assert got["head_burden_mae"] == pytest.approx(0.5)
     assert got["base_burden_mae"] == pytest.approx(0.0)
+
+
+# --- the card quotes what was measured ------------------------------------------------------
+
+MODEL_DIR = ROOT / "models" / "tier_b" / "arrhythmia"
+
+
+def _card() -> str:
+    return " ".join((MODEL_DIR / "card.md").read_text(encoding="utf-8").split())
+
+
+def _measurements() -> dict[str, object]:
+    data = json.loads((MODEL_DIR / "m3_exit_measurements.json").read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+    return data
+
+
+def _interval(m: dict[str, dict[str, float]], key: str) -> str:
+    v = m[key]
+    return f"{v['point']:.3f} ({v['lo']:.3f}-{v['hi']:.3f})"
+
+
+def _difference(m: dict[str, dict[str, float]], key: str) -> str:
+    v = m[key]
+    return f"{v['point']:+.3f} ({v['lo']:+.3f} to {v['hi']:+.3f})"
+
+
+def _percent(m: dict[str, dict[str, float]], key: str) -> str:
+    v = m[key]
+    return f"{v['point'] * 100:.1f}% ({v['lo'] * 100:.1f}-{v['hi'] * 100:.1f}%)"
+
+
+def test_the_measurements_file_is_the_run_the_selection_pinned() -> None:
+    sel = json.loads((TRAINING / "rr_baseline_selection.json").read_text(encoding="utf-8"))
+    got = _measurements()["rr_baseline_afdb"]
+    assert isinstance(got, dict)
+    assert got["feature"] == sel["feature"]
+    assert got["base_threshold"] == sel["threshold"]
+    assert (got["windows"], got["records"]) == (83863, 23)
+    assert got["bootstrap"] == {"resamples": rb.N_BOOT, "seed": rb.SEED, "unit": "record"}
+    assert got["head_threshold"] == pytest.approx(0.20)
+    undefined = [k for k, v in got["metrics"].items() if v["undefined_draws"]]
+    assert not undefined, undefined
+
+
+def test_the_card_quotes_the_baseline_numbers_as_measured() -> None:
+    card = _card()
+    afdb = _measurements()["rr_baseline_afdb"]
+    assert isinstance(afdb, dict)
+    m = afdb["metrics"]
+    for key in (
+        "head_auroc_all",
+        "base_auroc_all",
+        "head_auroc_both",
+        "base_auroc_both",
+        "head_sensitivity",
+        "base_sensitivity",
+        "head_specificity",
+        "base_specificity",
+        "head_ppv",
+        "base_ppv",
+        "head_burden_mae",
+        "base_burden_mae",
+        "base_sensitivity_at_head_specificity",
+    ):
+        assert _interval(m, key) in card, key
+    for key in (
+        "delta_auroc_all",
+        "delta_auroc_both",
+        "delta_sensitivity",
+        "delta_specificity",
+        "delta_ppv",
+    ):
+        assert _difference(m, key) in card, key
+    for key in ("head_refused", "base_refused"):
+        assert _percent(m, key) in card, key
+    assert f"{m['both_accepted']['point'] * 100:.1f}%" in card
+    assert f"{afdb['af_prevalence'] * 100:.1f}%" in card
+    assert f"threshold {afdb['base_threshold']:.3f}" in card
+
+
+def test_the_card_quotes_the_detector_check_and_the_validation_choice() -> None:
+    card = _card()
+    ds1 = _measurements()["rr_detector_ds1"]
+    assert isinstance(ds1, dict)
+    tp, _fp, fn = ds1["tp_fp_fn"]
+    assert f"sensitivity {ds1['sensitivity']:.3f} and PPV {ds1['ppv']:.3f}" in card
+    assert f"{tp:,} of {tp + fn:,} beats in {ds1['records']} records" in card
+    assert ds1["records"] == len(rb.DS1)
+    val = json.loads((TRAINING / "rr_baseline_selection.json").read_text(encoding="utf-8"))
+    auc = val["validation"]["auroc_by_feature"]
+    quoted = f"{auc['rmad']:.3f}, against {auc['nrmssd']:.3f}, {auc['cv']:.3f} and {auc['tpr']:.3f}"
+    assert quoted in card
+    assert f"sensitivity {val['validation']['sensitivity']:.3f} at specificity" in card
+    assert f"{val['validation']['auroc_selected_af_vs_n']:.3f} against N" in card
+    assert f"{val['validation']['auroc_selected_af_vs_other']:.3f} against Other" in card
+
+
+def test_the_card_quotes_the_latency_as_measured() -> None:
+    card = _card()
+    lat = _measurements()["latency"]
+    assert isinstance(lat, dict)
+    for key, label in (("ort_fp32", "ONNX Runtime FP32"), ("ort_int8", "ONNX Runtime INT8")):
+        v = lat[key]
+        ms, minute = v["ms_per_window"], v["ms_per_patient_minute"]
+        row = (
+            f"| {label} (network only) | {ms['p50']:.3f} ms | {ms['p95']:.3f} ms | "
+            f"{minute['p50']:.2f} / {minute['p95']:.2f} ms | {v['peak_rss_mb']:.1f} MB |"
+        )
+        assert row in card, key
+        assert v["threads"] == 1
+        assert v["batch"] == 1
+    for key, label in (("numpy_fp32", "numpy FP32"), ("numpy_int8", "numpy INT8")):
+        v = lat[key]
+        row = (
+            f"| {label} (whole labeller) | {v['p50']:.2f} ms | {v['p95']:.2f} ms | "
+            f"{v['per_minute_p50']:.2f} / {v['per_minute_p95']:.2f} ms | "
+            f"{v['peak_rss_mb']:.1f} MB |"
+        )
+        assert row in card, key
+
+
+def test_the_card_says_what_it_must_about_afdb_and_the_exit_gate() -> None:
+    card = _card()
+    for needle in (
+        "this head was scored on it repeatedly",
+        "the only decision those runs informed was",
+        "is the Evaluator's ruling, not this card's",
+        "a refusal is never scored as regular",
+        "pinned in `training/rr_baseline_selection.json` before AFDB was scored",
+        "The M3 exit gate is not met by this model or this card",
+        "Outstanding at least: a PVC metric and MindSpore Lite parity",
+        "10.13026/C2F305",
+        "https://physionet.org/content/mitdb/view-license/1.0.0/",
+        "Paced records 102, 104, 107, 217 are out by convention",
+        "202 is out because it is the same subject and tape as 201",
+        "DS2 is untouched",
+    ):
+        assert needle in card, needle
+
+
+def test_the_card_does_not_call_afdb_held_out_until_the_evaluator_rules() -> None:
+    # The Orchestrator's instruction: the word waits for the Evaluator's ruling. When that ruling
+    # exists, delete this test and say so in the card.
+    assert "held-out" not in _card().lower()

@@ -1,0 +1,387 @@
+{
+ "about": "Measurements quoted in card.md for the M3 exit gate items 1 (RR-irregularity baseline) and 3 (CPU latency). Written by training/rr_baseline.py, training/bench_ort.py and a one-off numpy timing script; the card is checked against this file by backend/tests/unit/test_rr_baseline.py.",
+ "latency": {
+  "numpy_fp32": {
+   "mean": 1.3991048199999998,
+   "p50": 1.3979375,
+   "p95": 1.41296425,
+   "p99": 1.4379182499999998,
+   "peak_rss_mb": 47.6,
+   "per_minute_p50": 8.387625,
+   "per_minute_p95": 8.4777855,
+   "precision": "fp32",
+   "timed_calls": 1500
+  },
+  "numpy_int8": {
+   "mean": 1.5294793926666668,
+   "p50": 1.527792,
+   "p95": 1.5461753,
+   "p99": 1.5762215800000001,
+   "peak_rss_mb": 47.9,
+   "per_minute_p50": 9.166752,
+   "per_minute_p95": 9.2770518,
+   "precision": "int8",
+   "timed_calls": 1500
+  },
+  "numpy_note": "whole labeller (band-pass, normalisation, forward), one process per precision, one-off script not committed; ONNX Runtime rows are the network only (training/bench_ort.py)",
+  "ort_fp32": {
+   "batch": 1,
+   "cpu": "Apple M4",
+   "model": "tiny_fp32.onnx",
+   "ms_per_patient_minute": {
+    "p50": 1.351998,
+    "p95": 1.3605
+   },
+   "ms_per_window": {
+    "max": 0.262292,
+    "mean": 0.22550145466666663,
+    "p50": 0.225333,
+    "p95": 0.22675,
+    "p99": 0.23079240999999998
+   },
+   "os": "macOS-27.0.1-arm64-arm-64bit",
+   "peak_rss_mb": 57.8,
+   "python": "3.11.14",
+   "runtime": "onnxruntime 1.31.0, CPUExecutionProvider",
+   "sha256": "3c96e36ac4d76052ffc508c2997cce91b5e8fae035317db0912feede8d72e02e",
+   "threads": 1,
+   "timed_calls": 3000,
+   "warmup_calls": 200
+  },
+  "ort_int8": {
+   "batch": 1,
+   "cpu": "Apple M4",
+   "model": "tiny_int8.onnx",
+   "ms_per_patient_minute": {
+    "p50": 0.419748,
+    "p95": 0.421002
+   },
+   "ms_per_window": {
+    "max": 0.08025,
+    "mean": 0.07000224333333334,
+    "p50": 0.069958,
+    "p95": 0.070167,
+    "p99": 0.07275
+   },
+   "os": "macOS-27.0.1-arm64-arm-64bit",
+   "peak_rss_mb": 57.8,
+   "python": "3.11.14",
+   "runtime": "onnxruntime 1.31.0, CPUExecutionProvider",
+   "sha256": "09873ea40f13b8bcb1dce0f134e985766299da3ff4f9631b843d8cf92122b036",
+   "threads": 1,
+   "timed_calls": 3000,
+   "warmup_calls": 200
+  }
+ },
+ "rr_baseline_afdb": {
+  "af_prevalence": 0.4051846463875607,
+  "base_refused_by_reason": {
+   "implausible_rate": 2,
+   "too_few_beats": 251
+  },
+  "base_threshold": 0.26898734177215194,
+  "bootstrap": {
+   "resamples": 1000,
+   "seed": 20261014,
+   "unit": "record"
+  },
+  "feature": "rmad",
+  "head_threshold": 0.20000000298023224,
+  "metrics": {
+   "base_auroc_accepted": {
+    "hi": 0.9551840545502503,
+    "lo": 0.8954228508112138,
+    "point": 0.9291814576878135,
+    "undefined_draws": 0.0
+   },
+   "base_auroc_all": {
+    "hi": 0.951871029251277,
+    "lo": 0.8895043597107096,
+    "point": 0.9249708458463788,
+    "undefined_draws": 0.0
+   },
+   "base_auroc_both": {
+    "hi": 0.9601226921452093,
+    "lo": 0.9004402429288829,
+    "point": 0.9343019268008612,
+    "undefined_draws": 0.0
+   },
+   "base_burden_mae": {
+    "hi": 0.42071113337022065,
+    "lo": 0.20619934958078007,
+    "point": 0.31330477520227096,
+    "undefined_draws": 0.0
+   },
+   "base_ppv": {
+    "hi": 0.9137767269850134,
+    "lo": 0.6418607551155816,
+    "point": 0.8145588076466141,
+    "undefined_draws": 0.0
+   },
+   "base_refused": {
+    "hi": 0.006234343314098066,
+    "lo": 0.0007789532301526157,
+    "point": 0.0030168250599191537,
+    "undefined_draws": 0.0
+   },
+   "base_sensitivity": {
+    "hi": 0.2866553048050527,
+    "lo": 0.1513848053081971,
+    "point": 0.2229975459034328,
+    "undefined_draws": 0.0
+   },
+   "base_sensitivity_at_head_specificity": {
+    "hi": 0.5515917343932173,
+    "lo": 0.007405701732241845,
+    "point": 0.1375476774784897,
+    "undefined_draws": 0.0
+   },
+   "base_specificity": {
+    "hi": 0.9753710292204418,
+    "lo": 0.9547159406395184,
+    "point": 0.9655144710679066,
+    "undefined_draws": 0.0
+   },
+   "base_specificity_at_head_specificity": {
+    "hi": 0.9906356783337512,
+    "lo": 0.9395328014604508,
+    "point": 0.9721424411014481,
+    "undefined_draws": 0.0
+   },
+   "both_accepted": {
+    "hi": 0.9658591392873397,
+    "lo": 0.9229289927189959,
+    "point": 0.9466630099090183,
+    "undefined_draws": 0.0
+   },
+   "delta_auroc_all": {
+    "hi": 0.07498519148099,
+    "lo": 0.016036534351171253,
+    "point": 0.0416027550967204,
+    "undefined_draws": 0.0
+   },
+   "delta_auroc_both": {
+    "hi": 0.07584689763061465,
+    "lo": 0.02081021188331864,
+    "point": 0.04455519725999135,
+    "undefined_draws": 0.0
+   },
+   "delta_ppv": {
+    "hi": 0.29254416440421954,
+    "lo": 0.052987916460532226,
+    "point": 0.13914489605708957,
+    "undefined_draws": 0.0
+   },
+   "delta_sensitivity": {
+    "hi": 0.7060082077864362,
+    "lo": 0.5363925876750321,
+    "point": 0.62284045335002,
+    "undefined_draws": 0.0
+   },
+   "delta_specificity": {
+    "hi": 0.02925284191223309,
+    "lo": -0.02846939785689082,
+    "point": 0.00662390831449422,
+    "undefined_draws": 0.0
+   },
+   "head_auroc_accepted": {
+    "hi": 0.993273932527266,
+    "lo": 0.9558271032723885,
+    "point": 0.9788125147253013,
+    "undefined_draws": 0.0
+   },
+   "head_auroc_all": {
+    "hi": 0.983751825326932,
+    "lo": 0.9436061308661015,
+    "point": 0.9665736009430992,
+    "undefined_draws": 0.0
+   },
+   "head_auroc_both": {
+    "hi": 0.9932897534660462,
+    "lo": 0.9558231714965421,
+    "point": 0.9788571240608526,
+    "undefined_draws": 0.0
+   },
+   "head_burden_mae": {
+    "hi": 0.12397398184036706,
+    "lo": 0.034928294167637326,
+    "point": 0.0757341627799654,
+    "undefined_draws": 0.0
+   },
+   "head_ppv": {
+    "hi": 0.9874901843405515,
+    "lo": 0.8935350878446242,
+    "point": 0.9537037037037037,
+    "undefined_draws": 0.0
+   },
+   "head_refused": {
+    "hi": 0.07463152295372014,
+    "lo": 0.03302434038409467,
+    "point": 0.05172722177837664,
+    "undefined_draws": 0.0
+   },
+   "head_sensitivity": {
+    "hi": 0.9363080540045619,
+    "lo": 0.7450097423956004,
+    "point": 0.8458379992534528,
+    "undefined_draws": 0.0
+   },
+   "head_specificity": {
+    "hi": 0.9906314422669079,
+    "lo": 0.939516609200658,
+    "point": 0.9721383793824008,
+    "undefined_draws": 0.0
+   }
+  },
+  "per_record_names": [
+   "04015",
+   "04043",
+   "04048",
+   "04126",
+   "04746",
+   "04908",
+   "04936",
+   "05091",
+   "05121",
+   "05261",
+   "06426",
+   "06453",
+   "06995",
+   "07162",
+   "07859",
+   "07879",
+   "07910",
+   "08215",
+   "08219",
+   "08378",
+   "08405",
+   "08434",
+   "08455"
+  ],
+  "records": 23,
+  "windows": 83863
+ },
+ "rr_detector_ds1": {
+  "match_tolerance_s": 0.15,
+  "per_record": {
+   "101": {
+    "beats": 1860.0,
+    "ppv": 0.9967724583109199,
+    "sensitivity": 0.9962365591397849
+   },
+   "106": {
+    "beats": 2021.0,
+    "ppv": 1.0,
+    "sensitivity": 0.9881246907471549
+   },
+   "108": {
+    "beats": 1757.0,
+    "ppv": 0.993689041881813,
+    "sensitivity": 0.9857712009106432
+   },
+   "109": {
+    "beats": 2524.0,
+    "ppv": 0.998015873015873,
+    "sensitivity": 0.9964342313787639
+   },
+   "112": {
+    "beats": 2531.0,
+    "ppv": 0.999604273842501,
+    "sensitivity": 0.9980244962465429
+   },
+   "114": {
+    "beats": 1872.0,
+    "ppv": 0.9989310529128808,
+    "sensitivity": 0.9983974358974359
+   },
+   "115": {
+    "beats": 1946.0,
+    "ppv": 1.0,
+    "sensitivity": 0.9974306269270298
+   },
+   "116": {
+    "beats": 2404.0,
+    "ppv": 0.9987394957983193,
+    "sensitivity": 0.9887687188019967
+   },
+   "118": {
+    "beats": 2271.0,
+    "ppv": 1.0,
+    "sensitivity": 0.9969176574196389
+   },
+   "119": {
+    "beats": 1981.0,
+    "ppv": 0.9969758064516129,
+    "sensitivity": 0.9984856133266027
+   },
+   "122": {
+    "beats": 2468.0,
+    "ppv": 0.9979748886188741,
+    "sensitivity": 0.9983792544570502
+   },
+   "124": {
+    "beats": 1613.0,
+    "ppv": 0.9993722536095417,
+    "sensitivity": 0.9869807811531308
+   },
+   "201": {
+    "beats": 1959.0,
+    "ppv": 0.999468085106383,
+    "sensitivity": 0.9591628381827463
+   },
+   "203": {
+    "beats": 2973.0,
+    "ppv": 0.995847489618724,
+    "sensitivity": 0.8873192061890346
+   },
+   "205": {
+    "beats": 2648.0,
+    "ppv": 1.0,
+    "sensitivity": 0.9966012084592145
+   },
+   "207": {
+    "beats": 1850.0,
+    "ppv": 0.8582338902147971,
+    "sensitivity": 0.9718918918918918
+   },
+   "208": {
+    "beats": 2946.0,
+    "ppv": 0.9984579799537394,
+    "sensitivity": 0.8791581805838425
+   },
+   "209": {
+    "beats": 2997.0,
+    "ppv": 0.9996662216288384,
+    "sensitivity": 0.9993326659993327
+   },
+   "215": {
+    "beats": 3353.0,
+    "ppv": 1.0,
+    "sensitivity": 0.9916492693110647
+   },
+   "220": {
+    "beats": 2041.0,
+    "ppv": 1.0,
+    "sensitivity": 0.9990200881920627
+   },
+   "223": {
+    "beats": 2597.0,
+    "ppv": 0.997675319643549,
+    "sensitivity": 0.9915286869464767
+   },
+   "230": {
+    "beats": 2248.0,
+    "ppv": 1.0,
+    "sensitivity": 0.9977758007117438
+   }
+  },
+  "ppv": 0.9928271135109287,
+  "records": 22,
+  "sensitivity": 0.9797286669288242,
+  "tp_fp_fn": [
+   49829,
+   360,
+   1031
+  ]
+ }
+}

@@ -200,11 +200,12 @@ def test_the_card_carries_the_licence_lines_and_the_open_note() -> None:
         "10.13026/d3hm-sf11",
         "10.13026/C2HS3T",
         "10.13026/C2MW2D",
+        "10.13026/C2F305",
         "exclusively for this competition by AliveCor",
         "not cleared for product use",
         "evaluation and development only",
         "never trained, tuned or calibrated on BioSentry patients",
     ):
         assert needle in card, needle
-    for slug in ("challenge-2017", "nstdb", "afdb"):
+    for slug in ("challenge-2017", "nstdb", "afdb", "mitdb"):
         assert f"https://physionet.org/content/{slug}/view-license/1.0.0/" in card

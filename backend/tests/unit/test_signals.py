@@ -29,7 +29,8 @@ def mean_windows(signal: SignalInput) -> tuple[Result[float], ...]:
 
 
 @pytest.mark.parametrize(
-    ("fs", "window_s"), [(0, 1), (-1, 1), (math.nan, 1), (4, 0), (4, math.inf), (1, 0.1)]
+    ("fs", "window_s"),
+    [(0, 1), (-1, 1), (math.nan, 1), (math.inf, 1), (4, 0), (4, math.inf), (1, 0.1)],
 )
 def test_invalid_rate_or_window_is_rejected(fs: float, window_s: float) -> None:
     with pytest.raises(ValueError, match=r"positive|at least one"):
@@ -103,6 +104,13 @@ def test_min_coverage_must_be_a_fraction() -> None:
     for bad in (0, -0.1, 1.5):
         with pytest.raises(ValueError, match="min_coverage"):
             apply_windows(make(), mean, provenance=PROV, min_coverage=bad)
+
+
+def test_a_window_of_one_sample_and_a_full_coverage_floor_are_allowed() -> None:
+    single = SignalInput(fs=1.0, window_s=1.0, samples=(2.0, 4.0), valid=(True, True))
+    assert single.samples_per_window == 1
+    results = apply_windows(single, mean, provenance=PROV, min_coverage=1.0)
+    assert [r.value for r in results if isinstance(r, Computed)] == [2.0, 4.0]
 
 
 def test_the_original_provenance_is_not_mutated() -> None:

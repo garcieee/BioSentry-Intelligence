@@ -21,7 +21,7 @@ Nothing is interpolated, resampled or filled; a gap is a gap (I1).
 | `hr_burden` | minutes at or above 110 bpm over **valid** minutes, with coverage | `coverage_below_minimum`, `no_minutes` |
 | `robust_baseline`, `robust_z` | in-admission median/MAD and z | `baseline_not_established`, `baseline_has_no_spread`, `value_not_finite` |
 | `pi_window` / `compute_pi` | perfusion index (100 x AC / DC, window median), pulse rate | `too_few_valid_pulses`, `low_signal_quality`, `dc_not_positive`, `pulse_rate_disagrees_with_ecg` |
-| `rr_windows` | breaths/min, which estimators agreed, spread, how many voted | `insufficient_estimators`, `estimators_disagree` |
+| `rr_windows` | breaths/min, which estimators agreed, spread, how many voted | `insufficient_estimators`, `estimators_disagree`, `estimators_ambiguous` (two different agreeing pairs: no guess) |
 
 ## Wire-up notes (for whoever integrates this into the scoring service)
 
@@ -70,7 +70,7 @@ Nothing is interpolated, resampled or filled; a gap is a gap (I1).
 | Perfusion index | accuracy against the generator's known AC/DC | within 12% (reads 5-10% low on 90 ms pulses; 0.82 of truth on 40 ms pulses) | design tolerance; synthetic signals only |
 | HRV | SDNN and RMSSD against exact interval series | within 0.01 ms; SDNN uses n - 1; RMSSD never differences across an excluded interval | design; synthetic exact series |
 | RR | band | 6-30 breaths/min | plausible adult range |
-| RR | agreement | within 3 breaths/min, at least 2 of 3 estimators | design |
+| RR | agreement | within 3 breaths/min, at least 2 of 3 estimators, and one largest group only (two overlapping pairs are refused) | design |
 | RR | spectral prominence (peak / mean band power) | at least 8 | tuned: noise alone median 3.8, max 7.1; 6 gave false votes |
 | RR | valid beats needed / accelerometer minimum run | 8 / 20 s | design; the longest run must reach about 30 s at 10-25/min (20 s at 30/min): only an edge gap up to about 2 s keeps the vote in a 32 s window, see Limits |
 | RR | channel coverage floor to vote | 50% of the window | design |

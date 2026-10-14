@@ -4,6 +4,8 @@ Nothing here clamps or fills in a value. A number that cannot be a real reading 
 with `RejectedError`; an omitted field stays as it was.
 """
 
+from datetime import datetime
+
 from biosentry.core.audit import AuditLog, Clock, utc_now
 from biosentry.repositories.memory.store import MemoryStore, PatientRecord
 from biosentry.schemas import (
@@ -46,6 +48,22 @@ def split_blood_pressure(text: str) -> BloodPressure:
     if diastolic >= systolic:
         raise RejectedError("diastolic must be below systolic")
     return BloodPressure(systolic=systolic, diastolic=diastolic)
+
+
+def oldest_lab_age_hours(labs: dict[str, object], now: datetime) -> float | None:
+    """Age, in hours, of the OLDEST lab present in the panel; None when there is none.
+
+    A panel is only as fresh as its stalest value: entering one new potassium must not make a
+    36-hour-old BNP read as "0h".
+    """
+    ages: list[float] = []
+    for name, measurement in labs.items():
+        if name == "freshness_hours" or not isinstance(measurement, NumberMeasurement):
+            continue
+        if isinstance(measurement.data, NumberPresent):
+            seconds = (now - measurement.provenance.observed_at).total_seconds()
+            ages.append(max(0.0, seconds) / 3600)
+    return round(max(ages), 1) if ages else None
 
 
 class PatientService:
@@ -125,7 +143,7 @@ class PatientService:
                 fields[name] = NumberMeasurement(
                     data=NumberPresent(present=True, value=value), provenance=prov
                 )
-            fields["freshness_hours"] = 0.0
+            fields["freshness_hours"] = oldest_lab_age_hours(fields, self._clock())
             panel = LabPanel.model_validate(fields)
             record.labs = panel
             if record.ranked is not None:
@@ -136,6 +154,15 @@ class PatientService:
     # --- admission -------------------------------------------------------------------------
 
     def admit(self, clinician_id: str, form: AdmitPatientInput) -> AbstainedRow:
+        """Admit a patient: NOT RANKED until a patch is applied and the signal is verified.
+
+        Kept: name, age, sex, bed, admitting context, and the nurse-entered blood pressure
+        (split once, structured) and ACVPU. Accepted but NOT stored in this build: date of
+        birth, civil status, contact number, PhilHealth PIN, route, condition on admission,
+        chief complaint, attending physician, allergies, weight and height. The PIN is
+        sensitive personal information (RA 10173): when it is persisted it must be stored
+        ciphertext-only and never logged or cached (W5).
+        """
         blood_pressure: BloodPressure | None = None
         if form.initial_bp is not None:
             try:

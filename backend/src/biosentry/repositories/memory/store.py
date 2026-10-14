@@ -8,6 +8,7 @@ them from the vitals on every read, so a write that changes an input changes the
 import json
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from biosentry.schemas import (
@@ -59,6 +60,7 @@ class ClinicianEntry:
 @dataclass(slots=True)
 class MemoryStore:
     ward: str
+    as_of: datetime  # the dataset's "now"
     tier_status: list[TierStatus]
     patients: dict[str, PatientRecord]
     clinicians: dict[str, ClinicianEntry]
@@ -126,6 +128,7 @@ def load(path: Path) -> MemoryStore:
     tier_status = list(first.tier_status) if first is not None else []
     return MemoryStore(
         ward=raw["ward"],
+        as_of=datetime.fromisoformat(raw["as_of"]),
         tier_status=tier_status,
         patients=patients,
         clinicians=clinicians,

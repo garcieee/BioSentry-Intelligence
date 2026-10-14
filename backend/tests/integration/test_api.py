@@ -218,16 +218,80 @@ def test_my_audit_returns_only_my_own_trail(client: TestClient) -> None:
 
 def test_the_audit_trail_holds_no_patient_data(app_and_client: tuple[Any, TestClient]) -> None:
     _, client = app_and_client
-    client.get("/patients/p-001", headers=as_("rn-manalo"))
-    dumped = json.dumps(
-        [
-            r.__dict__ if hasattr(r, "__dict__") else str(r)
-            for r in ctx(app_and_client).audit.records()
-        ],
-        default=str,
+    h = as_("rn-delacruz")
+    client.get("/patients/p-001", headers=h)
+    client.post("/patients/p-001/labs", headers=h, json={"potassium": 4.37191, "bnp": 1234.5678})
+    client.post(
+        "/patients/p-001/notes",
+        headers=h,
+        json={"author": "RN Zzyzx", "role": "RN", "content": "UNIQUE-NOTE-TEXT-9f3a"},
     )
-    for name in ("Santos", "Maria", "88", "troponin"):
-        assert name not in dumped
+    admitted = client.post(
+        "/patients",
+        headers=h,
+        json={
+            "lastName": "Quillfeather", "firstName": "Ottoline", "dateOfBirth": "1969-02-03",
+            "age": 57, "sex": "F", "bed": "12C", "admissionRoute": "transfer",
+            "chiefComplaint": "UNIQUE-COMPLAINT-77", "admittingContext": "UNIQUE-CONTEXT-88",
+            "attendingPhysician": "Dr Nobody", "philhealthPin": "12-345678901-2",
+            "initialBp": "131/77",
+        },
+    )  # fmt: skip
+    assert admitted.status_code == 201
+    audit = ctx(app_and_client).audit
+    dumped = json.dumps(
+        [r.__dict__ if hasattr(r, "__dict__") else repr(r) for r in audit.records()], default=str
+    )
+    dumped += repr(audit.records()) + client.get("/audit", headers=h).text
+    secrets = [
+        "Santos", "Maria", "4.37191", "1234.5678", "Zzyzx", "UNIQUE-NOTE-TEXT-9f3a",
+        "Quillfeather", "Ottoline", "1969-02-03", "UNIQUE-COMPLAINT-77", "UNIQUE-CONTEXT-88",
+        "12-345678901-2", "131/77", "Dr Nobody",
+    ]  # fmt: skip
+    for secret in secrets:
+        assert secret not in dumped, f"{secret!r} leaked into the audit trail"
+    assert len(audit.for_clinician("rn-delacruz")) >= 4
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "action", "body"),
+    [
+        ("GET", "/patients/{}", "view_patient", None),
+        ("GET", "/patients/{}/notes", "view_notes", None),
+        ("POST", "/patients/{}/notes", "add_note", {"author": "a", "role": "RN", "content": "c"}),
+        ("DELETE", "/patients/{}/notes/n-001", "delete_note", None),
+        ("POST", "/patients/{}/labs", "enter_labs", {"potassium": 4.0}),
+    ],
+)
+def test_every_refused_action_is_logged_like_a_missing_one(
+    app_and_client: tuple[Any, TestClient], method: str, path: str, action: str, body: Any
+) -> None:
+    _, client = app_and_client
+    audit = ctx(app_and_client).audit
+    h = as_("md-aquino")
+    outcomes = []
+    for pid in ("p-001", "p-999"):  # exists but not theirs / does not exist
+        before = len(audit.records())
+        response = client.request(method, path.format(pid), headers=h, json=body)
+        new = audit.records()[before:]
+        assert len(new) == 1, (pid, new)
+        outcomes.append((response.status_code, response.json(), new[0].action, new[0].outcome))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][2:] == (action, "not_found")
+
+
+def test_an_unknown_ward_is_audited_and_logged_like_any_other_miss(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    _, client = app_and_client
+    client.get("/wards/ICU/rows", headers=as_("rn-manalo"))
+    client.get("/wards/XYZ/rows", headers=as_("rn-manalo"))
+    first, second = ctx(app_and_client).audit.for_clinician("rn-manalo")
+    assert (
+        (first.action, first.outcome)
+        == (second.action, second.outcome)
+        == ("view_ward", "not_found")
+    )
 
 
 # --- Data: contract shapes, null never zero -----------------------------------------------
@@ -310,7 +374,7 @@ def test_notes_round_trip(client: TestClient) -> None:
     assert (note["patient_id"], note["synthetic"], note["timestamp"]) == (
         "p-003",
         True,
-        "2026-10-14T12:00:00Z",
+        "2026-09-03T07:00:00Z",  # the ward clock is the dataset's as_of, not the wall clock
     )
     listed = client.get("/patients/p-003/notes", headers=h).json()
     assert listed[0]["id"] == note["id"]  # newest first
@@ -330,7 +394,64 @@ def test_labs_update_only_what_was_entered(client: TestClient) -> None:
     assert panel["potassium"]["provenance"]["source"] == "lab"
     assert panel["bnp"]["data"]["value"] == 1840  # untouched
     assert panel["troponin"] is None  # omitted stays missing; it is not zero
-    assert panel["freshness_hours"] == 0.0
+    assert panel["freshness_hours"] == 1.0  # the oldest lab on the panel is 1 h old
+
+
+def test_a_panel_is_only_as_fresh_as_its_oldest_lab(client: TestClient) -> None:
+    h = as_("rn-manalo")
+    # p-011's labs are 36 h old. One fresh potassium must not make the panel read "0 h".
+    before = client.get("/patients/p-011", headers=h).json()["labs"]
+    assert before["freshness_hours"] == 36.0
+    panel = client.post("/patients/p-011/labs", headers=h, json={"potassium": 4.1}).json()
+    assert panel["potassium"]["provenance"]["observed_at"] == "2026-09-03T07:00:00Z"
+    assert panel["freshness_hours"] == 36.0
+    assert panel["sodium"]["data"]["present"] is True  # the stale values are still there
+
+
+def test_replacing_every_lab_makes_the_panel_fresh(client: TestClient) -> None:
+    h = as_("rn-manalo")
+    panel = client.get("/patients/p-011", headers=h).json()["labs"]
+    present = {
+        n: m["data"]["value"] for n, m in panel.items() if isinstance(m, dict) and "data" in m
+    }
+    assert present
+    fresh = client.post("/patients/p-011/labs", headers=h, json=present).json()
+    assert fresh["freshness_hours"] == 0.0
+
+
+def test_ward_time_can_follow_the_system_clock() -> None:
+    app = create_app(Settings(ward_time="system"), clock=lambda: NOW)
+    client = TestClient(app)
+    note = client.post(
+        "/patients/p-003/notes",
+        headers=as_("rn-manalo"),
+        json={"author": "a", "role": "RN", "content": "c"},
+    ).json()
+    assert note["timestamp"] == "2026-10-14T12:00:00Z"
+
+
+def test_ward_time_setting_is_validated() -> None:
+    assert Settings.from_env({"BIOSENTRY_WARD_TIME": "system"}).ward_time == "system"
+    assert Settings.from_env({}).ward_time == "dataset"
+    with pytest.raises(ValueError, match="BIOSENTRY_WARD_TIME"):
+        Settings.from_env({"BIOSENTRY_WARD_TIME": "tomorrow"})
+
+
+def test_admission_does_not_keep_what_it_does_not_use(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    _, client = app_and_client
+    form = {
+        "lastName": "Okonkwo", "firstName": "Ada", "dateOfBirth": "1980-07-04", "age": 45,
+        "sex": "F", "bed": "9Z", "admissionRoute": "er_triage", "chiefComplaint": "c",
+        "admittingContext": "ctx", "attendingPhysician": "p",
+        "philhealthPin": "98-765432109-8", "contactNumber": "0917-555-0100",
+        "allergies": "penicillin",
+    }  # fmt: skip
+    assert client.post("/patients", headers=as_("rn-delacruz"), json=form).status_code == 201
+    stored = repr(ctx(app_and_client).store.patients)
+    for dropped in ("98-765432109-8", "0917-555-0100", "1980-07-04", "penicillin"):
+        assert dropped not in stored  # nothing sensitive is held in plaintext (W5)
 
 
 def test_a_negative_lab_is_rejected_and_stores_nothing(client: TestClient) -> None:

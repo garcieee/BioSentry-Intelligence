@@ -6,6 +6,7 @@ is scoped to the caller's patients on the server, on every call, and a patient w
 exist and one who is not yours get the same 404. Responses are `Cache-Control: no-store`.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Annotated
 
@@ -86,11 +87,16 @@ def create_app(settings: Settings | None = None, clock: Clock = utc_now) -> Fast
     settings = settings or Settings.from_env()
     store = memory_store.load(settings.dataset)
     audit = AuditLog(clock)
+    ward_clock: Clock = (lambda: store.as_of) if settings.ward_time == "dataset" else clock
+    logging.getLogger("biosentry.api").warning(
+        "Identity is a stub: the bearer token IS the clinician id. Never expose this server "
+        "beyond loopback; real authentication replaces it before any non-synthetic use."
+    )
     ctx = Context(
         store=store,
         audit=audit,
         wards=WardService(store, audit),
-        patients=PatientService(store, audit, clock),
+        patients=PatientService(store, audit, ward_clock),
     )
 
     app = FastAPI(title="BioSentry Intelligence API", version="0.1.0")

@@ -8,6 +8,7 @@ recorded value re-ranks the patient immediately.
 
 import json
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +26,9 @@ from biosentry.schemas import (
 class PatientRecord:
     id: str
     state: UnscoredPatient
+    # Bumped by every change to `state`. A cached snapshot is only as good as the revision it
+    # was computed from, and the store is the one place that can say what the current one is.
+    revision: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +63,27 @@ class MemoryStore:
         entry = self.clinicians.get(clinician_id)
         return entry.patients if entry is not None else frozenset()
 
+    def read(self, patient_id: str) -> tuple[int, UnscoredPatient] | None:
+        """A patient's revision and the state at that revision, read together (or None)."""
+        with self.lock:
+            record = self.patients.get(patient_id)
+            return (record.revision, record.state) if record is not None else None
+
     # --- writes ------------------------------------------------------------------------------
+
+    def update(
+        self, patient_id: str, change: Callable[[UnscoredPatient], UnscoredPatient]
+    ) -> tuple[int, UnscoredPatient]:
+        """Replace a patient's state with `change(state)`, atomically.
+
+        Returns the new revision and state. Every write to a patient's state goes through here,
+        so the revision cannot be left behind by a writer that forgot to say anything changed.
+        """
+        with self.lock:
+            record = self.patients[patient_id]
+            record.state = change(record.state)
+            record.revision += 1
+            return record.revision, record.state
 
     def next_patient_id(self) -> str:
         numbers = [int(pid.removeprefix("p-")) for pid in self.patients if pid.startswith("p-")]

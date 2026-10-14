@@ -94,7 +94,9 @@ class News2Score:
     parameters: tuple[ParameterScore, ...]  # all seven, in chart order
     single_threes: tuple[str, ...]  # parameters scoring 3 (independent urgent trigger)
     spo2_scale: Spo2Scale
-    reasons: tuple[str, ...]
+    total_reason: str  # e.g. "Total 11 (≥7): high"
+    trigger_reason: str | None  # e.g. "Single parameter at 3: SpO2"; None without a single 3
+    reasons: tuple[str, ...]  # every line, in the order shown to clinicians
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,10 +245,13 @@ def score_news2(inputs: News2Inputs) -> News2Result:
         for r in rows
         if r.score > 0
     ]
-    reasons.append(f"Total {total} ({_total_band(total)}): {risk.value.replace('_', '-')}")
+    total_reason = f"Total {total} ({_total_band(total)}): {risk.value.replace('_', '-')}"
+    reasons.append(total_reason)
+    trigger_reason: str | None = None
     if single_threes:
         names = ", ".join(_LABELS[n] for n in single_threes)
-        reasons.append(f"Single parameter at {tables.SINGLE_PARAMETER_TRIGGER}: {names}")
+        trigger_reason = f"Single parameter at {tables.SINGLE_PARAMETER_TRIGGER}: {names}"
+        reasons.append(trigger_reason)
 
     return News2Score(
         total=total,
@@ -254,6 +259,8 @@ def score_news2(inputs: News2Inputs) -> News2Result:
         parameters=tuple(rows),
         single_threes=single_threes,
         spo2_scale=scale,
+        total_reason=total_reason,
+        trigger_reason=trigger_reason,
         reasons=tuple(reasons),
     )
 

@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-from biosentry.api.app import Context, create_app
+from biosentry.api.app import WRITE_ACTIONS, Context, create_app
 from biosentry.core.config import DEFAULT_DATASET, Settings
 from biosentry.domain.arbiter import arbitrate, rank_ward
 from biosentry.domain.scoring.tier_a import inputs_from_vitals, score_news2
@@ -768,7 +769,108 @@ def test_a_newly_admitted_patient_can_be_recorded_but_stays_not_ranked_without_a
     assert recorded.not_ranked_reason == "No device data"
 
 
-# --- The audit row names the role --------------------------------------------------------
+# --- A rejected write is audited, and identity still comes first ---------------------------
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"systolic": 0, "diastolic": 0},
+        {"systolic": "9187x", "diastolic": 80},  # wrong type
+        {"systolic": 130},  # half a pair
+        {"acvpu": "ZZZ-leak"},
+        {"systolic": 130, "diastolic": 84, "heart_rate": 70},
+    ],
+    ids=lambda b: json.dumps(b),
+)
+def test_a_rejected_record_leaves_exactly_one_audit_row_and_no_values(
+    app_and_client: tuple[Any, TestClient], body: dict[str, Any]
+) -> None:
+    _, client = app_and_client
+    audit = ctx(app_and_client).audit
+    response = client.post("/patients/p-004/vitals", headers=as_("rn-delacruz"), json=body)
+    assert response.status_code == 422
+    rows = audit.records()
+    assert [(r.clinician_id, r.role, r.action, r.resource, r.outcome) for r in rows] == [
+        ("rn-delacruz", "rn", "record_vitals", "p-004", "rejected")
+    ]
+    leaked = repr(rows) + client.get("/audit", headers=as_("rn-delacruz")).text
+    for value in ("9187x", "ZZZ-leak", "heart_rate"):
+        assert value not in leaked
+
+
+def test_a_body_that_is_not_json_is_audited_once_identified_and_refused_before_that(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    _, client = app_and_client
+    audit = ctx(app_and_client).audit
+    json_header = {"Content-Type": "application/json"}
+    identified = {**as_("rn-delacruz"), **json_header}
+    refused = client.post("/patients/p-004/vitals", content=b"{not json", headers=identified)
+    assert refused.status_code == 422
+    assert [(r.action, r.outcome) for r in audit.for_clinician("rn-delacruz")] == [
+        ("record_vitals", "rejected")
+    ]
+    anonymous = client.post("/patients/p-004/vitals", content=b"{not json", headers=json_header)
+    assert anonymous.status_code == 401
+    assert (audit.records()[-1].clinician_id, audit.records()[-1].action) == (None, "authenticate")
+
+
+@pytest.mark.parametrize(
+    ("headers", "status"),
+    [
+        ({}, 401),
+        ({"Authorization": "Basic abc"}, 401),
+        ({"Authorization": "Bearer"}, 401),
+        ({"Authorization": "Bearer rn-nobody"}, 403),
+    ],
+    ids=["missing", "wrong-scheme", "empty", "unknown"],
+)
+def test_a_bad_body_without_identity_is_refused_on_identity_not_on_validation(
+    app_and_client: tuple[Any, TestClient], headers: dict[str, str], status: int
+) -> None:
+    _, client = app_and_client
+    response = client.post("/patients/p-004/vitals", headers=headers, json={"systolic": "9187x"})
+    assert response.status_code == status
+    assert "9187x" not in response.text  # nothing about the body is told to an unidentified caller
+    rows = ctx(app_and_client).audit.records()
+    assert [(r.clinician_id, r.role, r.action, r.resource, r.outcome) for r in rows] == [
+        (None, None, "authenticate", "-", "denied")
+    ]
+
+
+def test_a_bad_body_is_answered_the_same_for_not_yours_and_nonexistent(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    _, client = app_and_client
+    h = as_("md-aquino")
+    refused = client.post("/patients/p-004/vitals", headers=h, json={"systolic": "x"})
+    missing = client.post("/patients/p-999/vitals", headers=h, json={"systolic": "x"})
+    assert refused.status_code == missing.status_code == 422
+    assert refused.json() == missing.json()
+    first, second = ctx(app_and_client).audit.for_clinician("md-aquino")
+    assert (first.action, first.outcome) == (second.action, second.outcome)
+    assert (first.action, first.outcome) == ("record_vitals", "rejected")
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "action", "body"),
+    [
+        ("POST", "/patients", "admit_patient", {"lastName": "X"}),
+        ("POST", "/patients/p-001/notes", "add_note", {"author": "a"}),
+        ("POST", "/patients/p-001/labs", "enter_labs", {"potassium": "high"}),
+        ("POST", "/patients/p-004/vitals", "record_vitals", {}),
+    ],
+)
+def test_every_write_route_audits_a_body_that_fails_validation(
+    app_and_client: tuple[Any, TestClient], method: str, path: str, action: str, body: Any
+) -> None:
+    _, client = app_and_client
+    response = client.request(method, path, headers=as_("rn-manalo"), json=body)
+    assert response.status_code == 422
+    rows = ctx(app_and_client).audit.for_clinician("rn-manalo")
+    assert [(r.action, r.outcome) for r in rows] == [(action, "rejected")]
 
 
 def test_audit_rows_record_the_role_held_when_acting(
@@ -784,6 +886,83 @@ def test_audit_rows_record_the_role_held_when_acting(
         ("md-aquino", "md"),
         (None, None),
     ]
+
+
+# --- Every route demands identity first ---------------------------------------------------
+
+PUBLIC_ROUTES = {("GET", "/healthz")}
+VALID_BODIES: dict[tuple[str, str], dict[str, Any]] = {
+    ("POST", "/patients"): _admission("120/80"),
+    ("POST", "/patients/{patient_id}/notes"): {"author": "a", "role": "RN", "content": "c"},
+    ("POST", "/patients/{patient_id}/labs"): {"potassium": 4.0},
+    ("POST", "/patients/{patient_id}/vitals"): {"systolic": 120, "diastolic": 80},
+}
+PATH_VALUES = {"patient_id": "p-001", "note_id": "n-001", "ward": "W4"}
+
+
+def _route_table(app: Any) -> list[tuple[str, str]]:
+    table: list[tuple[str, str]] = []
+    for route in app.routes:
+        methods = getattr(route, "methods", None)
+        path = getattr(route, "path", None)
+        if methods is None or path is None:  # a mount or similar: not auditable by this test
+            raise AssertionError(f"route of an unknown kind: {route!r}")
+        table.extend((m, path) for m in sorted(methods - {"HEAD", "OPTIONS"}))
+    return table
+
+
+def test_every_route_but_healthz_demands_identity_before_anything_else(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    """A future route cannot ship unauthenticated: this walks the app's own route table."""
+    app, client = app_and_client
+    c = ctx(app_and_client)
+    table = [r for r in _route_table(app) if r not in PUBLIC_ROUTES]
+    assert len(table) >= 12  # the walk is not vacuous
+    states = {pid: rec.state for pid, rec in c.store.patients.items()}
+    notes = {pid: list(found) for pid, found in c.store.notes.items()}
+    cases = [
+        ({}, 401),
+        ({"Authorization": "Basic abc"}, 401),
+        ({"Authorization": "Bearer"}, 401),
+        ({"Authorization": "Bearer rn-nobody"}, 403),
+    ]
+    attempts = 0
+    for method, template in table:
+        url = template.format(**PATH_VALUES)
+        for headers, expected in cases:
+            response = client.request(
+                method, url, headers=headers, json=VALID_BODIES.get((method, template))
+            )
+            attempts += 1
+            assert response.status_code == expected, (method, template, headers)
+            assert "Santos" not in response.text
+    assert {pid: rec.state for pid, rec in c.store.patients.items()} == states
+    assert {pid: list(found) for pid, found in c.store.notes.items()} == notes
+    rows = c.audit.records()
+    assert len(rows) == attempts
+    assert {(r.clinician_id, r.action, r.outcome) for r in rows} == {
+        (None, "authenticate", "denied")
+    }
+
+
+def test_every_route_that_takes_a_body_has_an_audited_rejection(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    app, _ = app_and_client
+    with_body = {
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, APIRoute) and route.body_field is not None
+        for method in route.methods or ()
+    }
+    assert with_body == set(WRITE_ACTIONS)
+
+
+def test_the_service_serves_no_documentation_to_anyone(client: TestClient) -> None:
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path).status_code == 404
+        assert client.get(path, headers=as_("rn-manalo")).status_code == 404
 
 
 # --- The routes the frontend calls --------------------------------------------------------

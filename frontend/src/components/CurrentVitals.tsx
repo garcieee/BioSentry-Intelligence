@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { Vitals } from "../types";
 import styles from "../pages/PatientDetail.module.css";
-import { formatBloodPressure } from "./format";
+import { formatBloodPressure, formatOxygen, formatSpo2Scale } from "./format";
 import { MeasurementDisplay, type MeasurementProps } from "./MeasurementDisplay";
 
 type Primitive = string | number | boolean;
@@ -47,6 +47,8 @@ export function CurrentVitals({ vitals }: { vitals: Vitals }): ReactElement {
         format={formatBloodPressure}
       />
       <VitalRow label="Consciousness" measurement={vitals.consciousness} />
+      <VitalRow label="Oxygen" measurement={vitals.supplemental_o2} format={formatOxygen} />
+      <VitalRow label="SpO2 scale" measurement={vitals.spo2_scale} format={formatSpo2Scale} />
     </>
   );
 }

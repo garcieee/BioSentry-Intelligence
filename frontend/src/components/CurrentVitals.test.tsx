@@ -33,6 +33,59 @@ describe("CURRENT VITALS", () => {
     }
   });
 
+  it("shows the two NEWS2 inputs the score depends on: oxygen and the SpO2 scale", () => {
+    const base = patients[0].vitals;
+    const recorded = (onOxygen: boolean, scale: 1 | 2): Vitals => ({
+      ...base,
+      supplemental_o2: {
+        data: { present: true, value: onOxygen },
+        provenance: base.supplemental_o2.provenance,
+      },
+      spo2_scale: {
+        data: { present: true, value: scale },
+        provenance: base.spo2_scale.provenance,
+      },
+    });
+    const air = html(recorded(false, 1));
+    expect(air).toContain("Room air");
+    expect(air).toContain("Scale 1");
+    const oxygen = html(recorded(true, 2));
+    expect(oxygen).toContain("On oxygen");
+    expect(oxygen).toContain("Scale 2");
+    for (const out of [air, oxygen]) {
+      expect(out).not.toMatch(/>(true|false)</);
+    }
+  });
+
+  it("lists both rows for every patient, as -- when not recorded", () => {
+    for (const p of patients) {
+      const out = html(p.vitals);
+      expect(out, p.id).toContain("Oxygen");
+      expect(out, p.id).toContain("SpO2 scale");
+      expect(out, p.id).not.toContain("undefined");
+    }
+  });
+
+  it("shows an unrecorded oxygen status or SpO2 scale as --", () => {
+    const base = patients[0].vitals;
+    const unrecorded: Vitals = {
+      ...base,
+      supplemental_o2: {
+        data: { present: false, reason: "not_recorded" },
+        provenance: base.supplemental_o2.provenance,
+      },
+      spo2_scale: {
+        data: { present: false, reason: "not_recorded" },
+        provenance: base.spo2_scale.provenance,
+      },
+    };
+    const out = html(unrecorded);
+    expect(out).not.toContain("Scale ");
+    expect(out).not.toContain("Room air");
+    expect(out).not.toContain("On oxygen");
+    expect(out).not.toContain("undefined");
+  });
+
   it("shows a missing blood pressure as -- (not 0/0)", () => {
     const base = patients[0].vitals;
     const missing: Vitals = {

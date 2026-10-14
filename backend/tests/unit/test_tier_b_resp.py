@@ -385,3 +385,77 @@ def test_a_usable_run_shorter_than_the_minimum_is_not_searched_for_pulses() -> N
 
     assert detect_pulses(v.ppg, only(20.0, 24.0), fs).times_s == ()  # 4 s < 5 s
     assert len(detect_pulses(v.ppg, only(20.0, 26.0), fs).times_s) >= 4  # 6 s
+
+
+def test_a_ppg_run_of_exactly_the_minimum_is_searched_and_one_sample_less_is_not() -> None:
+    v = synth_vitals(duration_s=60, seed=38)
+    fs = v.ppg_fs
+
+    def only(lo_s: float, hi_s: float) -> tuple[bool, ...]:
+        return tuple(lo_s * fs <= i < hi_s * fs for i in range(len(v.ppg)))
+
+    assert len(detect_pulses(v.ppg, only(20.0, 25.0), fs).times_s) >= 3  # 500 samples
+    assert detect_pulses(v.ppg, only(20.0, 25.0 - 1 / fs), fs).times_s == ()  # 499
+
+
+@pytest.mark.parametrize(
+    ("lo_s", "hi_s", "valid"),
+    [(10.5, 15.5, 2), (11.0, 16.0, 0)],
+    ids=["three-scorable-pulses", "two-scorable-pulses"],
+)
+def test_a_pulse_template_needs_three_scorable_pulses(lo_s: float, hi_s: float, valid: int) -> None:
+    # 40 bpm, 5 s runs: the first has three pulses with room for a template (two of them have a
+    # full foot and DC window), the second only two, so nothing in it is judged valid
+    v = synth_vitals(duration_s=60, hr_bpm=40.0, seed=61)
+    usable = tuple(lo_s * v.ppg_fs <= i < hi_s * v.ppg_fs for i in range(len(v.ppg)))
+    assert sum(detect_pulses(v.ppg, usable, v.ppg_fs).valid) == valid
+
+
+def test_too_few_valid_pulses_are_refused_and_enough_are_computed() -> None:
+    v = synth_vitals(duration_s=40, seed=62)
+    n = len(v.ppg)
+
+    def first(seconds: float) -> tuple[bool, ...]:
+        return tuple(i < seconds * v.ppg_fs for i in range(n))
+
+    assert pi_window(v.ppg, first(8.0), v.ppg_fs) == NotComputed("too_few_valid_pulses")
+    assert isinstance(pi_window(v.ppg, first(14.0), v.ppg_fs), PiValue)
+
+
+def test_a_window_where_most_pulses_fail_the_template_is_refused_for_quality() -> None:
+    # fourteen 5 s usable runs at 40 bpm, alternately with three pulses (two judged valid) and
+    # four (none judged: only two had room for a template): 14 valid of 49 detected
+    v = synth_vitals(duration_s=130, hr_bpm=40.0, seed=61)
+    starts = (2.5, 8.0, 13.5, 20.0, 25.5, 32.25, 37.75, 44.0, 49.5, 56.0, 61.5, 68.0, 73.5, 80.0)
+    usable = tuple(
+        any(lo * v.ppg_fs <= i < (lo + 5.0) * v.ppg_fs for lo in starts) for i in range(len(v.ppg))
+    )
+    pulses = detect_pulses(v.ppg, usable, v.ppg_fs)
+    assert sum(pulses.valid) >= 10  # enough valid pulses, so the share is what refuses it
+    assert sum(pulses.valid) / len(pulses.valid) < 0.5
+    assert pi_window(v.ppg, usable, v.ppg_fs) == NotComputed("low_signal_quality")
+
+
+def test_agreement_is_inclusive_at_the_tolerance() -> None:
+    assert isinstance(agree({"ecg": 12.0, "ppg": 15.0}), RrValue)
+    assert agree({"ecg": 12.0, "ppg": 15.01}) == NotComputed("estimators_disagree")
+
+
+def test_channels_must_share_the_window_length() -> None:
+    v = synth_vitals(duration_s=64, seed=63)
+    ecg, ppg, _ = _channels(v)
+    short = SignalInput(ppg.fs, WINDOW_S / 2, ppg.samples, ppg.valid)
+    with pytest.raises(ValueError, match="must share window_s"):
+        rr_windows(ecg, short, None, PROV)
+
+
+def test_a_channel_exactly_at_the_coverage_floor_still_votes() -> None:
+    # 8 s of the first 32 s window masked on every channel: coverage is exactly 0.75, the floor
+    v = synth_vitals(duration_s=64, rr_bpm=15.0, seed=30)
+    ecg, ppg, accel = (_gapped(c, 0.0, 8.0) for c in _channels(v))
+    (first, _) = rr_windows(ecg, ppg, accel, PROV, min_coverage=0.75)
+    assert isinstance(first, Computed)
+    assert first.window.coverage == pytest.approx(0.75)
+    assert first.value.estimators == ("ecg", "ppg")
+    just_above = rr_windows(ecg, ppg, accel, PROV, min_coverage=0.76)
+    assert just_above[0] == NotComputed("insufficient_estimators")

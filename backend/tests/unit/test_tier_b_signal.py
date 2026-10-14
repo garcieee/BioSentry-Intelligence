@@ -9,6 +9,8 @@ from synth_ecg import SynthEcg, f1_within, synth_ecg
 
 from biosentry.domain.computed import Computed, NotComputed
 from biosentry.domain.scoring.tier_b.burden import (
+    BASELINE_MIN_VALID,
+    HR_BURDEN_BPM,
     Baseline,
     hr_burden,
     robust_baseline,
@@ -336,3 +338,81 @@ def test_a_usable_run_shorter_than_the_minimum_is_not_searched_for_beats() -> No
 
     assert detect_beats(ecg.samples, only(20.0, 22.5), fs).times_s == ()  # 2.5 s < 3 s
     assert len(detect_beats(ecg.samples, only(20.0, 24.0), fs).times_s) >= 3  # 4 s
+
+
+# --- the numbers the card promises: minimum runs, templates, HRV refusals ---------------
+
+
+def test_a_usable_run_of_exactly_the_minimum_is_searched_and_one_sample_less_is_not() -> None:
+    ecg = synth_ecg(duration_s=60, seed=43)
+    fs = ecg.fs
+
+    def only(lo_s: float, hi_s: float) -> tuple[bool, ...]:
+        return tuple(lo_s * fs <= i < hi_s * fs for i in range(len(ecg.samples)))
+
+    assert len(detect_beats(ecg.samples, only(20.0, 23.0), fs).times_s) >= 2  # 750 samples
+    assert detect_beats(ecg.samples, only(20.0, 23.0 - 1 / fs), fs).times_s == ()  # 749
+
+
+@pytest.mark.parametrize(
+    ("hr_bpm", "crop_s", "expected_beats", "all_valid"),
+    [(40.0, 3.0, 2, False), (60.0, 3.4, 3, True)],
+    ids=["two-scorable-beats", "three-scorable-beats"],
+)
+def test_a_template_needs_three_scorable_beats(
+    hr_bpm: float, crop_s: float, expected_beats: int, all_valid: bool
+) -> None:
+    ecg = synth_ecg(duration_s=10, hr_bpm=hr_bpm, rr_sd_s=0.0, seed=45)
+    crop = ecg.samples[: round(crop_s * ecg.fs)]
+    beats = detect_beats(crop, (True,) * len(crop), ecg.fs)
+    assert len(beats.times_s) == expected_beats
+    assert all(beats.valid) is all_valid
+    assert any(beats.valid) is all_valid  # with two beats none is judged, never some
+
+
+def test_a_masked_span_of_exactly_the_gap_limit_is_computed() -> None:
+    ecg = synth_ecg(duration_s=120, seed=41)
+    samples, usable = _masked_with_spikes(ecg, 40.0, 60.0)  # 20.0 s, not more than the limit
+    assert isinstance(hrv_window(samples, usable, ecg.fs), HrvValue)
+
+
+def test_too_little_valid_signal_for_sdnn_is_refused_with_its_reason() -> None:
+    ecg = synth_ecg(duration_s=20, seed=44)  # every interval valid, but under 30 s of them
+    got = hrv_window(ecg.samples, (True,) * len(ecg.samples), ecg.fs)
+    assert got == NotComputed("insufficient_valid_nn")
+
+
+def test_scattered_gaps_under_the_limit_can_still_fail_the_coverage_rule() -> None:
+    # three 15 s gaps in 120 s: no gap is over 20 s, so only the 75% coverage rule can refuse
+    ecg = synth_ecg(duration_s=120, seed=46)
+    spans = [(10.0, 25.0), (45.0, 60.0), (80.0, 95.0)]
+    usable = tuple(
+        not any(lo * ecg.fs <= i < hi * ecg.fs for lo, hi in spans) for i in range(len(ecg.samples))
+    )
+    samples = [x if ok else float("nan") for x, ok in zip(ecg.samples, usable, strict=True)]
+    assert hrv_window(samples, usable, ecg.fs) == NotComputed("nn_coverage_below_75pct")
+
+
+def test_burden_and_baseline_reject_series_of_different_lengths() -> None:
+    with pytest.raises(ValueError, match="same length"):
+        hr_burden([80.0, 90.0], [True])
+    with pytest.raises(ValueError, match="same length"):
+        robust_baseline([1.0, 2.0], [True])
+
+
+def test_a_minute_exactly_at_the_burden_threshold_counts() -> None:
+    got = hr_burden([HR_BURDEN_BPM] * 60, [True] * 60)
+    assert not isinstance(got, NotComputed)
+    assert got.minutes_over == 60
+
+
+def test_a_baseline_needs_exactly_the_minimum_valid_minutes() -> None:
+    n = BASELINE_MIN_VALID
+    assert isinstance(robust_baseline([70.0] * n, [True] * n), Baseline)
+    assert robust_baseline([70.0] * (n - 1), [True] * (n - 1)) == NotComputed(
+        "baseline_not_established"
+    )
+
+
+def test_an_empty_series_is_refused_as_no_minutes_not_as_low_coverage() -> None:
+    assert hr_burden([], []) == NotComputed("no_minutes")

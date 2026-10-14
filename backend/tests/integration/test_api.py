@@ -501,23 +501,53 @@ def test_admission_splits_the_blood_pressure_once(app_and_client: tuple[Any, Tes
     assert row.id not in {a["id"] for a in other["abstained"]}
 
 
+def _admission(bp: str) -> dict[str, Any]:
+    return {
+        "lastName": "X", "firstName": "Y", "dateOfBirth": "1970-01-01", "age": 50, "sex": "F",
+        "bed": "1A", "admissionRoute": "transfer", "chiefComplaint": "c",
+        "admittingContext": "a", "attendingPhysician": "p", "initialBp": bp,
+    }  # fmt: skip
+
+
 @pytest.mark.parametrize(
     "bp",
-    ["20/80", "120/130", "400/80", "120/10", "120/120", "12/8", "abc", "120-80", "120/80/1"],
+    [
+        "19/10",  # systolic below the floor
+        "120/09",  # diastolic below the floor
+        "20/80",  # diastolic not below systolic
+        "120/130",
+        "120/120",
+        "301/80",  # systolic above the ceiling
+        "400/80",
+        "300/201",  # diastolic above the ceiling
+        "12/8",
+        "abc",
+        "120-80",
+        "120/80/1",
+    ],
 )
 def test_an_implausible_or_malformed_admission_blood_pressure_is_rejected_not_clamped(
     app_and_client: tuple[Any, TestClient], bp: str
 ) -> None:
     _, client = app_and_client
-    form = {
-        "lastName": "X", "firstName": "Y", "dateOfBirth": "1970-01-01", "age": 50, "sex": "F",
-        "bed": "1A", "admissionRoute": "transfer", "chiefComplaint": "c",
-        "admittingContext": "a", "attendingPhysician": "p", "initialBp": bp,
-    }  # fmt: skip
     before = len(ctx(app_and_client).store.patients)
-    response = client.post("/patients", headers=as_("rn-delacruz"), json=form)
+    response = client.post("/patients", headers=as_("rn-delacruz"), json=_admission(bp))
     assert response.status_code == 422
     assert len(ctx(app_and_client).store.patients) == before
+
+
+@pytest.mark.parametrize("bp", ["20/10", "45/20", "300/200"])
+def test_a_critical_but_possible_admission_blood_pressure_is_accepted_as_typed(
+    app_and_client: tuple[Any, TestClient], bp: str
+) -> None:
+    _, client = app_and_client
+    response = client.post("/patients", headers=as_("rn-delacruz"), json=_admission(bp))
+    assert response.status_code == 201
+    stored = ctx(app_and_client).store.patients[response.json()["id"]].state
+    data = stored.vitals.blood_pressure.data
+    assert isinstance(data, BloodPressurePresent)
+    systolic, diastolic = (int(n) for n in bp.split("/"))
+    assert (data.value.systolic, data.value.diastolic) == (systolic, diastolic)
 
 
 def test_extraction_is_not_implemented_and_says_so(client: TestClient) -> None:
@@ -604,18 +634,22 @@ def test_a_patient_without_a_patch_stays_not_ranked_whatever_the_nurse_records(
         {"systolic": 130},
         {"diastolic": 80},
         {"systolic": 0, "diastolic": 0},
+        {"systolic": -5, "diastolic": 80},
+        {"systolic": 19, "diastolic": 9},  # both just below the floor
+        {"systolic": 19, "diastolic": 10},
+        {"systolic": 20, "diastolic": 9},
+        {"systolic": 20, "diastolic": 20},  # diastolic must be below systolic
         {"systolic": 20, "diastolic": 80},
+        {"systolic": 301, "diastolic": 80},
         {"systolic": 400, "diastolic": 80},
+        {"systolic": 300, "diastolic": 201},
         {"systolic": 120, "diastolic": 130},
-        {"systolic": 120, "diastolic": 10},
         {"systolic": 120.5, "diastolic": 80},
         {"acvpu": "X"},
         {"spo2_scale": 3},
         {"spo2_scale": "1"},
         {"spo2_scale": True},
         {"on_oxygen": "yes"},
-        {"heart_rate": 70},
-        {"systolic": 120, "diastolic": 80, "temperature": 37.0},
     ],
     ids=lambda b: json.dumps(b),
 )
@@ -629,6 +663,52 @@ def test_an_implausible_or_incomplete_record_is_rejected_and_stores_nothing(
     assert _ward(client, "rn-delacruz").model_dump() == before
     state = ctx(app_and_client).store.patients["p-004"].state
     assert state.vitals.blood_pressure.data.present is False
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"heart_rate": 70},
+        {"respiratory_rate": 16},
+        {"spo2": 97},
+        {"temperature": 37.0},
+        {"entered_by": "rn-delacruz"},
+        {"unknown_key": 1},
+    ],
+    ids=lambda e: next(iter(e)),
+)
+def test_a_field_the_nurse_cannot_record_is_refused_and_the_valid_part_is_not_stored(
+    app_and_client: tuple[Any, TestClient], extra: dict[str, Any]
+) -> None:
+    """Device-sourced values and unknown keys are 422 even beside a perfectly valid BP."""
+    _, client = app_and_client
+    before = _ward(client, "rn-delacruz").model_dump()
+    body = {"systolic": 130, "diastolic": 84, **extra}
+    response = client.post("/patients/p-004/vitals", headers=as_("rn-delacruz"), json=body)
+    assert response.status_code == 422
+    assert _ward(client, "rn-delacruz").model_dump() == before
+    state = ctx(app_and_client).store.patients["p-004"].state
+    assert state.vitals.blood_pressure.data.present is False
+
+
+@pytest.mark.parametrize(("systolic", "diastolic"), [(20, 10), (45, 20), (300, 200)])
+def test_a_critical_reading_is_recordable_down_to_the_physical_floor(
+    client: TestClient, systolic: int, diastolic: int
+) -> None:
+    """Refusing a true 45/20 would leave the patient silently NOT RANKED: record it, escalate."""
+    h = as_("rn-delacruz")
+    response = client.post(
+        "/patients/p-004/vitals", headers=h, json={"systolic": systolic, "diastolic": diastolic}
+    )
+    assert response.status_code == 200
+    recorded = VitalsRecorded.model_validate(response.json())
+    assert recorded.blood_pressure is not None
+    assert recorded.blood_pressure.provenance.source == "nurse"
+    assert recorded.ranked is True
+    assert recorded.score == 3  # SBP <= 90 and SBP >= 220 each score 3
+    row = next(r for r in _ward(client, "rn-delacruz").ranked if r.id == "p-004")
+    assert [e.text for e in row.escalation_reasons] == ["Single parameter at 3: systolic BP"]
+    assert client.get("/patients/p-004", headers=h).status_code == 200
 
 
 def test_recording_for_a_patient_that_is_not_yours_is_not_found(

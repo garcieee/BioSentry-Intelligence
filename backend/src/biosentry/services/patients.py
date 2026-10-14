@@ -46,9 +46,13 @@ from biosentry.schemas.common import (
 
 from .ward import WardService
 
-# Plausibility of a nurse-typed blood pressure (physical, not clinical, bounds).
-SYSTOLIC_RANGE = (50, 300)
-DIASTOLIC_RANGE = (20, 200)
+# Bounds on a nurse-typed blood pressure: physical, not clinical. The floor is deliberately
+# low: a true critical reading such as 45/20 must be recordable, because refusing it would
+# leave the patient silently NOT RANKED, which is worse than accepting a typo (a mistyped low
+# value scores 3 and over-alarms; it cannot hide a patient). Zero is "missing" (the scorer's
+# zero-fill guard), so it is always rejected.
+SYSTOLIC_RANGE = (20, 300)
+DIASTOLIC_RANGE = (10, 200)
 SPARK_BINS = 12
 HISTORY_BINS = 24
 BIN_MINUTES = 15

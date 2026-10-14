@@ -804,3 +804,21 @@ ABSTAINED: tuple[Scenario, ...] = (
 )
 
 ALL: tuple[Scenario, ...] = tuple(sorted(RANKED + ABSTAINED, key=lambda s: s.id))
+
+WARD = "W4"
+
+
+@dataclass(frozen=True, slots=True)
+class Clinician:
+    id: str
+    role: Literal["rn", "md", "charge_rn"]
+    patients: tuple[str, ...]  # the patients under this clinician's care (server-side scope)
+
+
+CLINICIANS: tuple[Clinician, ...] = (
+    Clinician("rn-delacruz", "rn", ("p-001", "p-002", "p-004", "p-006", "p-009", "p-012")),
+    Clinician("rn-reyes", "rn", ("p-003", "p-005", "p-007", "p-008", "p-010", "p-011")),
+    Clinician("md-santos", "md", ("p-001", "p-002", "p-006", "p-008", "p-011")),
+    Clinician("md-aquino", "md", ("p-003", "p-007", "p-009", "p-010", "p-012")),
+    Clinician("rn-manalo", "charge_rn", tuple(s.id for s in ALL)),
+)

@@ -23,6 +23,7 @@ import type {
 
 interface SyntheticWard {
   readonly as_of: string;
+  readonly clinicians: Record<string, { readonly role: string; readonly patients: string[] }>;
   readonly ranked: ScoreRow[];
   readonly abstained: AbstainedRow[];
   readonly details: Record<
@@ -56,16 +57,11 @@ function present<T>(value: T, prov: Provenance): Measurement<T> {
   return { data: { present: true, value }, provenance: prov };
 }
 
-// --- Clinician-to-patient assignments (fixture-only, replaced by server auth in production) ---
+// --- Clinician-to-patient assignments (from the dataset; the server enforces this in production) ---
 
-const CLINICIAN_PATIENTS: Record<string, string[]> = {
-  "rn-delacruz": ["p-001", "p-002", "p-004", "p-006", "p-009", "p-012"],
-  "rn-reyes":    ["p-003", "p-005", "p-007", "p-008", "p-010", "p-011"],
-  "md-santos":   ["p-001", "p-002", "p-006", "p-008", "p-011"],
-  "md-aquino":   ["p-003", "p-007", "p-009", "p-010", "p-012"],
-  "rn-manalo":   ["p-001", "p-002", "p-003", "p-004", "p-005", "p-006",
-                  "p-007", "p-008", "p-009", "p-010", "p-011", "p-012"],
-};
+const CLINICIAN_PATIENTS: Record<string, string[]> = Object.fromEntries(
+  Object.entries(data.clinicians).map(([id, c]) => [id, [...c.patients]]),
+);
 
 let _activeClinician: string | null = null;
 

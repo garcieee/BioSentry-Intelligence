@@ -58,7 +58,7 @@ from biosentry.schemas.common import (
 )
 
 from .generator import BIN_MINUTES, BINS, MINUTES, SPARK_BINS, PatientSignals, simulate
-from .scenarios import ALL, DEVICE_VITALS, FindingSpec, Scenario, Vital
+from .scenarios import ALL, CLINICIANS, DEVICE_VITALS, WARD, FindingSpec, Scenario, Vital
 
 DEFAULT_SEED = 20260903
 AS_OF = datetime(2026, 9, 3, 7, 0, 0, tzinfo=UTC)
@@ -87,6 +87,7 @@ class Dataset:
     details: dict[str, tuple[VitalHistoryFull, TierBreakdown]]
     notes: tuple[ClinicalNote, ...]
     labels: dict[str, Label]
+    clinicians: dict[str, tuple[str, tuple[str, ...]]]  # id -> (role, patient ids)
 
     def to_json_dict(self) -> dict[str, Any]:
         return {
@@ -104,6 +105,11 @@ class Dataset:
                 for pid, (history, breakdown) in self.details.items()
             },
             "notes": [n.model_dump(mode="json") for n in self.notes],
+            "ward": WARD,
+            "clinicians": {
+                cid: {"role": role, "patients": list(patients)}
+                for cid, (role, patients) in self.clinicians.items()
+            },
             "labels": {
                 pid: {
                     "story": label.story,
@@ -434,6 +440,7 @@ def build(seed: int = DEFAULT_SEED) -> Dataset:
         details=details,
         notes=tuple(sorted(notes, key=lambda n: n.id)),
         labels=labels,
+        clinicians={c.id: (c.role, c.patients) for c in CLINICIANS},
     )
 
 

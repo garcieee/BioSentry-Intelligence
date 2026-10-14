@@ -390,3 +390,20 @@ def test_the_pinned_reading_is_exact_for_any_end_level(seed: int, end: float) ->
     assert latest is not None
     assert latest.value == end
     assert signals.minutes["heart_rate"][latest.minute] == end
+
+
+def test_clinician_directory_is_consistent(ward: Dataset) -> None:
+    ids = {s.id for s in ALL}
+    assert set(ward.clinicians) == {
+        "rn-delacruz",
+        "rn-reyes",
+        "md-santos",
+        "md-aquino",
+        "rn-manalo",
+    }
+    for role, patients in ward.clinicians.values():
+        assert role in {"rn", "md", "charge_rn"}
+        assert set(patients) <= ids
+    assert set(ward.clinicians["rn-manalo"][1]) == ids
+    covered = {p for _, patients in ward.clinicians.values() for p in patients}
+    assert covered == ids  # every patient is under someone's care

@@ -230,9 +230,10 @@ class RhythmLabeller:
     """`WindowLabeller` for the rhythm head: "af", "normal" or "other", or a refusal.
 
     A window is refused (`NotComputed`) when it is not exactly 2500 samples, when any sample is
-    unusable or not finite (the network is never given a gap), and when the model calls it
-    Noisy. AF is p(AF) >= the operating point (0.20, chosen on CinC validation only) among
-    accepted windows; otherwise normal or other by the larger probability.
+    unusable or not finite (the network is never given a gap), when a sample overflows float32 or
+    the logits are not finite (never a label from a NaN), and when the model calls it Noisy (the
+    argmax). Among accepted windows AF is p(AF) >= the operating point (0.20, chosen on CinC
+    validation only); otherwise normal or other by the larger probability.
     """
 
     id = MODEL_ID
@@ -248,8 +249,17 @@ class RhythmLabeller:
             return NotComputed("window_is_not_10s_at_250hz")
         if not all(usable) or not all(math.isfinite(s) for s in samples):
             return NotComputed("incomplete_window")
-        x = preprocess(samples, self._weights)[None, :]
-        p = softmax(logits(x, self._weights, self._precision))[0]
+        with np.errstate(over="ignore", invalid="ignore"):
+            raw = np.asarray(samples, dtype=np.float32)  # a finite float64 can overflow here
+            if not np.isfinite(raw).all():
+                return NotComputed("sample_out_of_float32_range")
+            x = robust_normalise(band_pass(raw, self._weights), self._weights)[None, :]
+            if not np.isfinite(x).all():  # the filter's output can overflow float32 as well
+                return NotComputed("filtered_signal_out_of_float32_range")
+            z = logits(x, self._weights, self._precision)
+            if not np.isfinite(z).all():
+                return NotComputed("non_finite_logits")
+            p = softmax(z)[0]
         return RhythmProbabilities(float(p[0]), float(p[1]), float(p[2]), float(p[3]))
 
     def label(self, samples: Sequence[float], usable: Sequence[bool]) -> str | NotComputed:

@@ -49,14 +49,15 @@ def test_band_pass_matches_the_reference_filter(
     weights: rc.Weights, golden: dict[str, np.ndarray]
 ) -> None:
     got = np.stack([rc.band_pass(w, weights) for w in golden["x_raw"]])
-    assert np.abs(got - golden["x_filtered"]).max() < 1e-5
+    # float32 filter stages would be off by up to 6.7e-6 here; float64 stages by < 1e-12
+    assert np.abs(got - golden["x_filtered"]).max() < 4e-6
 
 
 def test_normalisation_matches_the_reference_including_the_clip(
     weights: rc.Weights, golden: dict[str, np.ndarray]
 ) -> None:
     got = np.stack([rc.robust_normalise(w, weights) for w in golden["x_filtered"]])
-    assert np.abs(got - golden["x_norm"]).max() < 1e-5
+    assert np.abs(got - golden["x_norm"]).max() < 4e-6
     assert np.abs(golden["x_norm"]).max() == pytest.approx(10.0)  # the clip is exercised
     assert (np.abs(golden["x_norm"]) == 10.0).any(axis=1).sum() >= 3  # in several windows
 
@@ -226,6 +227,8 @@ def _fake_logits(monkeypatch: pytest.MonkeyPatch, probabilities: tuple[float, ..
         ((0.40, 0.2001, 0.3899, 0.01), "af"),  # a hair over the operating point
         ((0.40, 0.1999, 0.3901, 0.01), "normal"),  # a hair under it
         ((0.10, 0.25, 0.10, 0.55), NotComputed("noisy_window")),  # noisy wins over AF
+        ((0.30, 0.20, 0.10, 0.40), NotComputed("noisy_window")),  # noisy is the argmax, p < 0.5
+        ((0.50, 0.10, 0.05, 0.35), "normal"),  # noisy is a third of the mass but not the argmax
         ((0.10, 0.10, 0.10, 0.70), NotComputed("noisy_window")),
     ],
 )
@@ -390,3 +393,80 @@ def test_weights_missing_arrays_are_rejected(tmp_path: Path) -> None:
 
 def test_the_operating_point_is_read_from_the_weights(weights: rc.Weights) -> None:
     assert weights.threshold == pytest.approx(0.20)
+
+
+# --- the edges of the decision rule and of finiteness -------------------------------------
+
+
+def test_p_af_exactly_at_the_operating_point_is_af(
+    weights: rc.Weights, golden: dict[str, np.ndarray]
+) -> None:
+    window, usable = golden["x_raw"][2].tolist(), [True] * rc.WINDOW
+    p_af = rc.RhythmLabeller(weights).probabilities(window, usable)
+    assert isinstance(p_af, rc.RhythmProbabilities)
+    # move the operating point onto this window's own p(AF), and just above it
+    at = rc.Weights({**weights.arrays, "af_threshold": np.array([p_af.af], dtype=np.float32)})
+    above = rc.Weights(
+        {
+            **weights.arrays,
+            "af_threshold": np.array([np.nextafter(np.float32(p_af.af), np.float32(1))]),
+        }
+    )
+    assert rc.RhythmLabeller(at).label(window, usable) == "af"
+    assert rc.RhythmLabeller(above).label(window, usable) != "af"
+
+
+def test_equal_normal_and_other_probabilities_are_called_normal(
+    monkeypatch: pytest.MonkeyPatch, weights: rc.Weights
+) -> None:
+    z = np.array([[2.0, -3.0, 2.0, -5.0]], dtype=np.float32)  # p(N) == p(Other), AF far below
+    monkeypatch.setattr(rc, "logits", lambda x, w, p="fp32": z)
+    got = rc.RhythmLabeller(weights).label([0.0] * rc.WINDOW, [True] * rc.WINDOW)
+    assert got == "normal"
+
+
+@pytest.mark.parametrize("precision", ["fp32", "int8"])
+@pytest.mark.parametrize("value", [1e39, -1e39, 1e300])
+def test_a_finite_float64_that_overflows_float32_is_refused_not_labelled(
+    weights: rc.Weights, precision: rc.Precision, value: float
+) -> None:
+    window = [value] * rc.WINDOW  # math.isfinite is True for every sample
+    assert all(math.isfinite(v) for v in window)
+    got = rc.RhythmLabeller(weights, precision).label(window, [True] * rc.WINDOW)
+    assert got == NotComputed("sample_out_of_float32_range")
+    assert rc.RhythmLabeller(weights, precision).probabilities(
+        window, [True] * rc.WINDOW
+    ) == NotComputed("sample_out_of_float32_range")
+
+
+@pytest.mark.parametrize("precision", ["fp32", "int8"])
+def test_a_filter_output_that_overflows_float32_is_refused_with_its_own_reason(
+    weights: rc.Weights, precision: rc.Precision
+) -> None:
+    # 3.3e38 is a valid float32 and not a float64 overflow, but the band-pass of a 10 Hz sine
+    # that large peaks at 3.49e38, past the float32 maximum
+    t = np.arange(rc.WINDOW) / rc.FS
+    window = (3.3e38 * np.sin(2 * np.pi * 10.0 * t)).astype(np.float32).astype(np.float64).tolist()
+    got = rc.RhythmLabeller(weights, precision).label(window, [True] * rc.WINDOW)
+    assert got == NotComputed("filtered_signal_out_of_float32_range")
+
+
+@pytest.mark.parametrize("precision", ["fp32", "int8"])
+def test_large_but_representable_samples_give_finite_probabilities(
+    weights: rc.Weights, precision: rc.Precision
+) -> None:
+    t = np.arange(rc.WINDOW) / rc.FS
+    window = (3.0e38 * np.sin(2 * np.pi * 10.0 * t)).astype(np.float32).astype(np.float64).tolist()
+    got = rc.RhythmLabeller(weights, precision).probabilities(window, [True] * rc.WINDOW)
+    assert isinstance(got, rc.RhythmProbabilities)
+    assert np.isfinite([got.n, got.af, got.other, got.noisy]).all()
+    assert got.n + got.af + got.other + got.noisy == pytest.approx(1.0, abs=1e-4)
+
+
+def test_non_finite_logits_are_refused_not_labelled(
+    monkeypatch: pytest.MonkeyPatch, weights: rc.Weights
+) -> None:
+    z = np.array([[np.nan, 0.0, 0.0, 0.0]], dtype=np.float32)
+    monkeypatch.setattr(rc, "logits", lambda x, w, p="fp32": z)
+    labeller = rc.RhythmLabeller(weights)
+    assert labeller.label([0.1] * rc.WINDOW, [True] * rc.WINDOW) == NotComputed("non_finite_logits")

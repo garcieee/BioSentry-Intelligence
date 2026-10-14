@@ -23,6 +23,8 @@ never ranks, I3) and it is not a diagnosis.
 
 - Input: 250 Hz, 2500 samples (10 s), contiguous and fully valid. A window with any unusable
   sample is not passed in and is refused (I1): nothing is filled, interpolated or resampled.
+  Values that overflow float32 (in the input or after filtering) or logits that are not finite are
+  refused with their own reasons: a label never comes from a NaN.
 - Preprocessing (per window, so windows stay independent): causal Butterworth band-pass 0.5-40 Hz
   (order 2 per band edge, two second-order sections) with zero initial state, then median/MAD
   normalisation (MAD x 1.4826, +1e-6, clipped at +/-10). Measured against the stream-filtered

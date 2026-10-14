@@ -53,7 +53,7 @@ A four-step flow: department (Nursing or Medical), clinician profile, passphrase
 
 ### Ward view
 
-The core screen. A ranked list of patients ordered by deterioration score, highest first.
+The core screen. A ranked list of patients ordered by escalation level, then NEWS2 total, highest first.
 
 - **Status bar** -- ward, operator, shift, and a live indicator showing seconds since last data update
 - **Summary cards** -- patients ranked, not ranked, trending up, active scoring tiers, and pending tiers

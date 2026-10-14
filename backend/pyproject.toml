@@ -8,11 +8,13 @@ version = "0.1.0"
 description = "BioSentry Intelligence backend: contract schemas (CP1); API and domain code follow."
 requires-python = ">=3.11,<3.12"
 dependencies = [
+  "numpy==2.4.6",
   "pydantic==2.14.1",
 ]
 
 [project.optional-dependencies]
 dev = [
+  "hypothesis==6.169.1",
   "mypy==2.4.0",
   "pytest==9.1.1",
   "pyyaml==6.0.3",

@@ -76,12 +76,20 @@ describe("ward shape", () => {
     expect(new Set(ids(ward)).size).toBe(12);
   });
 
-  it("I3: the sort runs on Tier A, ranks are 1..n and scores never rise with rank", () => {
+  it("I3: sorted on Tier A by escalation level, then NEWS2 total; ranks are 1..n", () => {
     expect(ward.sort_tier).toBe("A");
+    const escalated = (r: WardResponse["ranked"][number]) =>
+      r.escalation_reasons.some((e) => e.rule === "tier_a_threshold");
     ward.ranked.forEach((r, i) => {
       expect(r.sort_tier).toBe("A");
       expect(r.rank).toBe(i + 1);
-      if (i > 0) expect(ward.ranked[i - 1].score).toBeGreaterThanOrEqual(r.score);
+      if (i === 0) return;
+      const prev = ward.ranked[i - 1];
+      // Escalated rows come first; within a group the total never rises with rank.
+      expect(Number(escalated(prev)), r.id).toBeGreaterThanOrEqual(Number(escalated(r)));
+      if (escalated(prev) === escalated(r)) {
+        expect(prev.score, r.id).toBeGreaterThanOrEqual(r.score);
+      }
     });
   });
 });
@@ -164,7 +172,7 @@ describe("I4 abstention is an output", () => {
   });
 });
 
-describe("escalation arbiter output (fixtures stand in for it until CP4/CP5)", () => {
+describe("escalation arbiter output (computed by the backend arbiter, not written)", () => {
   const rows = () => ward.ranked.map((r) => ({
     id: r.id,
     score: r.score,
@@ -184,25 +192,25 @@ describe("escalation arbiter output (fixtures stand in for it until CP4/CP5)", (
     }
   });
 
-  it("a tier_a_threshold reason cites a score the row actually reached", () => {
+  it("a tier_a_threshold reason cites the row's own total or a single-parameter trigger", () => {
     for (const r of rows()) {
       for (const e of r.tierA) {
-        const m = /NEWS2\s*(≥|=)\s*(\d+)/.exec(e.text);
-        expect(m, `${r.id} "${e.text}"`).not.toBeNull();
-        const n = Number(m![2]);
-        if (m![1] === "≥") expect(r.score, r.id).toBeGreaterThanOrEqual(n);
-        else expect(r.score, r.id).toBe(n);
+        const total = /^Total (\d+) \(/.exec(e.text);
+        if (total !== null) {
+          expect(Number(total[1]), `${r.id} "${e.text}"`).toBe(r.score);
+          expect(r.score, r.id).toBeGreaterThanOrEqual(5);
+        } else {
+          expect(e.text, `${r.id} "${e.text}"`).toMatch(/^Single parameter at 3: /);
+        }
       }
     }
   });
 
-  // KNOWN: p-007 "NEWS2 ≥ 4" (score 4) and p-008 "NEWS2 = 3" are filed under
-  // tier_a_threshold, but RCP 2017 thresholds start at an aggregate of 5 (or a
-  // single 3). Fixture scores also differ from NEWS2 of their own vitals in 9
-  // of 10 rows. CP3 (generated data) and CP4 (news2) close this.
-  it.fails("tier_a_threshold fires only at the RCP bands (aggregate >= 5)", () => {
+  it("tier_a_threshold fires only at an RCP trigger (aggregate >= 5 or a single parameter at 3)", () => {
     for (const r of rows()) {
-      if (r.tierA.length > 0) expect(r.score, r.id).toBeGreaterThanOrEqual(5);
+      if (r.tierA.length === 0) continue;
+      const single = r.tierA.some((e) => e.text.startsWith("Single parameter at 3: "));
+      expect(r.score >= 5 || single, r.id).toBe(true);
     }
   });
 });

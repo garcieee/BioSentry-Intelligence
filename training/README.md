@@ -14,12 +14,13 @@ Status: **spike (M3b)**, retrospective and on public data only.
 | `rhythm_head.py` | Tiny 1-D CNN rhythm head (N / AF / Other / Noisy) on 10 s single-lead ECG windows: `inspect`, `prep`, `train`, `eval`, `opt`, `export` |
 | `fetch_data.py` | Downloads the open PhysioNet corpora, verifies SHA-256 sums by exact path |
 | `pyproject.toml` | Own project, exact pins, Python 3.11 |
+| `constraints.txt` | Exact versions of the whole dependency closure (use with `pip install -c`) |
 
 ## Run
 
 ```bash
 cd training
-python3.11 -m venv .venv && .venv/bin/pip install -e .
+python3.11 -m venv .venv && .venv/bin/pip install -c constraints.txt -e .
 .venv/bin/python -I fetch_data.py --data data            # ~850 MB; --dry-run lists first
 .venv/bin/python -I rhythm_head.py prep   --data data --out out
 .venv/bin/python -I rhythm_head.py train  --data data --out out --epochs 12

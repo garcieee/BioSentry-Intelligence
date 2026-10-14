@@ -17,6 +17,13 @@ MITDB doi:10.13026/C2F305, NSTDB doi:10.13026/C2HS3T.
 import argparse, hashlib, pathlib, sys, time, urllib.parse, urllib.request, xml.etree.ElementTree as ET, zipfile
 from concurrent.futures import ThreadPoolExecutor
 
+# SHA-256 of training2017.zip, computed from the copy the spike results were produced with
+# (99,226,822 bytes). The challenge project publishes no SHA256SUMS, so this is a pin, not
+# a vendor checksum: cross-check it against physionet.org once if that matters to you.
+PINNED = {
+    "cinc2017/training2017.zip": "25fdbab36bb6724b66a4d2c26ff89f6b9d6ff87e6aed714d24cf5bf071cd1255",
+}
+
 S3 = "https://physionet-open.s3.amazonaws.com/"
 PN = "https://physionet.org/files/"
 NS = {"s": "http://s3.amazonaws.com/doc/2006-03-01/"}
@@ -87,22 +94,33 @@ def verify(data, ds):
         if len(parts) == 2:
             sums[parts[1]] = parts[0]          # exact relative path
     bad = ok = 0
+    unlisted = []
     for p in sorted(root.iterdir()):
+        if p.name == "SHA256SUMS.txt" or p.name.endswith(".part"):
+            continue
         want = sums.get(p.name)
         if want is None:
-            continue                           # SHA256SUMS.txt itself, extras
+            unlisted.append(p.name)            # downloaded but not covered by the sums file
+            continue
         if hashlib.sha256(p.read_bytes()).hexdigest() == want:
             ok += 1
         else:
             bad += 1
             print("CHECKSUM MISMATCH", ds, p.name)
-    print(f"{ds}: {ok} files verified, {bad} mismatches")
-    return bad == 0
+    # Signal files must be covered; small text extras (RECORDS, LICENSE.txt...) only warn.
+    data_unlisted = [n for n in unlisted if n.endswith(KEEP)]
+    if unlisted:
+        print(f"{ds}: NOT IN SHA256SUMS.txt: {unlisted}")
+    print(f"{ds}: {ok} files verified, {bad} mismatches, {len(unlisted)} unlisted")
+    return bad == 0 and not data_unlisted
 
 
 def extract_cinc(data):
     z = data / "cinc2017" / "training2017.zip"
     out = data / "cinc2017" / "extracted"
+    got = hashlib.sha256(z.read_bytes()).hexdigest()
+    if got != PINNED["cinc2017/training2017.zip"]:
+        sys.exit(f"training2017.zip sha256 mismatch: {got}")
     with zipfile.ZipFile(z) as zf:
         bad = [n for n in zf.namelist() if n.startswith("/") or ".." in pathlib.PurePosixPath(n).parts]
         if bad or zf.testzip() is not None:

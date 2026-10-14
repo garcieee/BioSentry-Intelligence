@@ -195,14 +195,26 @@ describe("a valid draft is one request carrying only what was entered", () => {
 
     const busy = screen.getByRole("button", { name: "Recording…" }) as HTMLButtonElement;
     expect(busy.disabled).toBe(true);
-    // The fields sit in a disabled fieldset: disabled for the browser, whatever their own flag.
-    expect(field("Systolic").matches(":disabled")).toBe(true);
+    // Every group is locked, so the draft cannot change under the echo of a request in flight.
+    // The fields sit in disabled fieldsets: disabled for the browser, whatever their own flag.
+    const groups = screen.getAllByRole("group") as HTMLFieldSetElement[];
+    expect(groups).toHaveLength(4);
+    for (const group of groups) {
+      expect(group.disabled, group.textContent ?? "").toBe(true);
+    }
+    const controls = [...screen.getAllByRole("radio"), field("Systolic"), field("Diastolic")];
+    expect(controls.length).toBeGreaterThan(10);
+    for (const control of controls) {
+      expect(control.matches(":disabled")).toBe(true);
+    }
     await user.click(busy);
     expect(api.recordVitals).toHaveBeenCalledTimes(1);
 
     finish(ranked(3, 0));
     expect(await screen.findByText("Ranked #3 with NEWS2 0.")).toBeTruthy();
-    expect(field("Systolic").matches(":disabled")).toBe(false);
+    for (const control of [...screen.getAllByRole("radio"), field("Systolic"), field("Diastolic")]) {
+      expect(control.matches(":disabled")).toBe(false);
+    }
   });
 
   it("states why a patient is still not ranked, in the server's words", async () => {

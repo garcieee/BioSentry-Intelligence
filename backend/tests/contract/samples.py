@@ -119,7 +119,7 @@ def vitals() -> dict[str, Any]:
 
 
 def vital_trends() -> dict[str, Any]:
-    return {k: [1.0, 2.0] for k in ("heart_rate", "respiratory_rate", "spo2", "temperature")}
+    return {k: [1.0, None, 2.0] for k in ("heart_rate", "respiratory_rate", "spo2", "temperature")}
 
 
 def labs() -> dict[str, Any]:
@@ -224,11 +224,12 @@ _BUILDERS: dict[type[BaseModel], Any] = {
     Spo2ScaleMeasurement: lambda: measurement(present(1)),
     BloodPressurePresent: lambda: present({"systolic": 120, "diastolic": 80}),
     BloodPressureMeasurement: lambda: measurement(present({"systolic": 120, "diastolic": 80})),
-    VitalHistory: lambda: {"time": "06:30", "value": 97},
+    VitalHistory: lambda: {"time": "2026-09-03T06:30:00Z", "value": 97},
     Vitals: vitals,
     VitalTrends: vital_trends,
     VitalHistoryFull: lambda: {
-        k: [{"time": "06:30", "value": 97}] for k in ("heart_rate", "respiratory_rate", "spo2")
+        k: [{"time": "2026-09-03T06:30:00Z", "value": 97}]
+        for k in ("heart_rate", "respiratory_rate", "spo2")
     },
     LabPanel: labs,
     PartialLabInput: lambda: {"troponin": 0.04},
@@ -274,7 +275,8 @@ _BUILDERS: dict[type[BaseModel], Any] = {
     PatientDetail: lambda: {
         **score_row(),
         "vital_history": {
-            k: [{"time": "06:30", "value": 97}] for k in ("heart_rate", "respiratory_rate", "spo2")
+            k: [{"time": "2026-09-03T06:30:00Z", "value": 97}]
+            for k in ("heart_rate", "respiratory_rate", "spo2")
         },
         "tier_breakdown": {
             "tier_a": {"score": 9, "label": "NEWS2 9"},

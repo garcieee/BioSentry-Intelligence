@@ -20,6 +20,7 @@ import type {
   TierCData,
   TierStatus,
   VitalHistory,
+  VitalHistoryFull,
   Vitals,
   WardResponse,
 } from "../types";
@@ -84,13 +85,30 @@ function genTrend(base: number, variance: number, direction: number, n = 12): nu
   return out;
 }
 
+const BIN_MS = 15 * 60 * 1000;
+
 function genHistory(base: number, variance: number, direction: number, n = 24): VitalHistory[] {
   const values = genTrend(base, variance, direction, n);
   return values.map((v, i) => ({
-    time: `${String(Math.floor((i / n) * 6)).padStart(2, "0")}:${String(Math.floor(((i / n) * 6 % 1) * 60)).padStart(2, "0")}`,
+    time: new Date(Date.parse(now) - (n - i) * BIN_MS).toISOString(),
     value: v,
   }));
 }
+
+// A dropped bin is null (I1): not zero, not interpolated. Fixture-only; CP3b generates these.
+function gapSeries(values: number[], at: number[]): (number | null)[] {
+  return values.map((v, i) => (at.includes(i) ? null : v));
+}
+
+function gapHistory(history: VitalHistory[], at: number[]): VitalHistory[] {
+  return history.map((h, i) => (at.includes(i) ? { time: h.time, value: null } : h));
+}
+
+// Sparkline bin j is history bin 12 + j (the sparkline is the last 3 h of the 6 h history).
+const SPARK_GAPS: Record<string, Partial<Record<"heart_rate" | "respiratory_rate" | "spo2" | "temperature", number[]>>> = {
+  "p-006": { heart_rate: [4, 5, 6], respiratory_rate: [4, 5, 6], spo2: [4, 5, 6], temperature: [4, 5, 6] },
+  "p-010": { respiratory_rate: [6] },
+};
 
 // --- Vitals builders ---
 
@@ -312,10 +330,10 @@ const ranked: ScoreRow[] = [
     supporting: "HR 94 bpm, BP 110/70 (nurse), BNP 920 pg/mL (lab, 9h)",
     vitals: makeVitals(94, 20, 95, 36.9, { systolic: 110, diastolic: 70 }, "A", now, now),
     vital_trends: {
-      heart_rate: genTrend(92, 6, 0.2),
-      respiratory_rate: genTrend(19, 3, 0.1),
-      spo2: genTrend(95, 1.5, 0),
-      temperature: genTrend(36.9, 0.2, 0),
+      heart_rate: gapSeries(genTrend(92, 6, 0.2), SPARK_GAPS["p-006"].heart_rate ?? []),
+      respiratory_rate: gapSeries(genTrend(19, 3, 0.1), SPARK_GAPS["p-006"].respiratory_rate ?? []),
+      spo2: gapSeries(genTrend(95, 1.5, 0), SPARK_GAPS["p-006"].spo2 ?? []),
+      temperature: gapSeries(genTrend(36.9, 0.2, 0), SPARK_GAPS["p-006"].temperature ?? []),
     },
     labs: makeLabs(9, { bnp: 920, sodium: 131, potassium: 4.6, creatinine: 1.8, bun: 32, hemoglobin: 110, wbc: 7.6, platelet_count: 175000, sgpt: 38, blood_glucose: 118 }),
     sort_tier: "A",
@@ -468,7 +486,7 @@ const ranked: ScoreRow[] = [
     vitals: makeVitals(72, 14, 99, 36.5, { systolic: 120, diastolic: 78 }, "A", now, now),
     vital_trends: {
       heart_rate: genTrend(72, 4, 0),
-      respiratory_rate: genTrend(14, 1, 0),
+      respiratory_rate: gapSeries(genTrend(14, 1, 0), SPARK_GAPS["p-010"].respiratory_rate ?? []),
       spo2: genTrend(99, 0.3, 0),
       temperature: genTrend(36.5, 0.1, 0),
     },
@@ -790,6 +808,20 @@ export async function listAllPatients(): Promise<Array<{ id: string; name: strin
   ];
 }
 
+function withHistoryGaps(
+  id: string,
+  history: { heart_rate: VitalHistory[]; respiratory_rate: VitalHistory[]; spo2: VitalHistory[] },
+): VitalHistoryFull {
+  const gaps = SPARK_GAPS[id] ?? {};
+  const at = (key: "heart_rate" | "respiratory_rate" | "spo2") =>
+    (gaps[key] ?? []).map((j) => 12 + j);
+  return {
+    heart_rate: gapHistory(history.heart_rate, at("heart_rate")),
+    respiratory_rate: gapHistory(history.respiratory_rate, at("respiratory_rate")),
+    spo2: gapHistory(history.spo2, at("spo2")),
+  };
+}
+
 export async function getPatient(id: string): Promise<PatientDetail | null> {
   const allowed = visiblePatientIds();
   if (allowed && !allowed.has(id)) return null;
@@ -797,7 +829,7 @@ export async function getPatient(id: string): Promise<PatientDetail | null> {
   if (!row) return null;
   return {
     ...row,
-    vital_history: {
+    vital_history: withHistoryGaps(row.id, {
       heart_rate: genHistory(
         row.vitals.heart_rate.data.present ? row.vitals.heart_rate.data.value : 70,
         15, row.trend === "rising" ? 1 : row.trend === "falling" ? -1 : 0,
@@ -810,7 +842,7 @@ export async function getPatient(id: string): Promise<PatientDetail | null> {
         row.vitals.spo2.data.present ? row.vitals.spo2.data.value : 97,
         3, row.trend === "rising" ? -0.5 : 0.2,
       ),
-    },
+    }),
     tier_breakdown: {
       tier_a: { score: row.score, label: `NEWS2 = ${row.score}` },
       tier_b: row.tier_b,

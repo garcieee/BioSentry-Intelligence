@@ -1,6 +1,6 @@
 """Vitals, vital series and the lab panel."""
 
-from pydantic import Field
+from pydantic import AwareDatetime, Field
 
 from .base import Contract, NonNegNum, Num
 from .common import (
@@ -13,9 +13,10 @@ from .common import (
 
 
 class VitalHistory(Contract):
-    # The fixture generator emits a chart label ("HH:MM"); CP3 decides the final form.
-    time: str
-    value: Num
+    """One 15-minute bin of a vital. `value` is null for a gap: never zero, never filled (I1)."""
+
+    time: AwareDatetime  # start of the bin, ISO 8601 with a timezone
+    value: Num | None
 
 
 class Vitals(Contract):
@@ -31,10 +32,12 @@ class Vitals(Contract):
 
 
 class VitalTrends(Contract):
-    heart_rate: list[Num]
-    respiratory_rate: list[Num]
-    spo2: list[Num]
-    temperature: list[Num]
+    """Sparkline series, oldest first, one entry per 15-minute bin. null = gap (I1)."""
+
+    heart_rate: list[Num | None]
+    respiratory_rate: list[Num | None]
+    spo2: list[Num | None]
+    temperature: list[Num | None]
 
 
 class VitalHistoryFull(Contract):

@@ -10,9 +10,11 @@ import type {
   ClinicalNote,
   LabExtractionResult,
   LabPanel,
+  NurseVitalsInput,
   PartialLabInput,
   PatientDetail,
   PatientExtractionResult,
+  VitalsRecorded,
   WardResponse,
 } from "../types";
 
@@ -35,6 +37,7 @@ export interface ApiProvider {
     patientId: string,
     labs: PartialLabInput,
   ): Promise<LabPanel>;
+  recordVitals(patientId: string, input: NurseVitalsInput): Promise<VitalsRecorded>;
   extractLabsFromFile(file: File): Promise<LabExtractionResult>;
   extractPatientFromFile(file: File): Promise<PatientExtractionResult>;
 }

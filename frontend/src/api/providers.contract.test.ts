@@ -193,7 +193,11 @@ describe.each(harnesses)("$name", ({ provider, signIn }) => {
   it("an admitted patient is NOT RANKED, visible to the admitting clinician only", async () => {
     signIn("rn-delacruz");
     const row = await provider.admitPatient(admission({ initialBp: "120/80" }));
-    expect(row.reason).toBe("Patch not yet applied");
+    // NOT RANKED with a reason and an instruction about the patch; no score, no rank.
+    expect(row.reason.length).toBeGreaterThan(0);
+    expect(row.instruction.toLowerCase()).toContain("patch");
+    expect(Object.keys(row)).not.toContain("score");
+    expect(Object.keys(row)).not.toContain("rank");
     expect(row.synthetic).toBe(true);
     const mine = await provider.getWard();
     expect(mine.abstained.map((a) => a.id)).toContain(row.id);
@@ -212,3 +216,41 @@ describe.each(harnesses)("$name", ({ provider, signIn }) => {
     },
   );
 });
+
+// The way out of NOT RANKED needs the arbiter, which only the API has (D4: the frontend never
+// computes a score). Runs last so the earlier assertions see the dataset's original ward.
+describe.skipIf(!API_URL)("http provider: nurse-recorded vitals", () => {
+  it("recording the missing blood pressure ranks the patient at once; implausible is rejected", async () => {
+    httpSignIn("rn-delacruz");
+    const before = await httpProvider.getWard();
+    expect(before.abstained.find((a) => a.id === "p-004")?.reason).toBe("Systolic BP missing");
+
+    const rejected = await attempt(() =>
+      httpProvider.recordVitals("p-004", { systolic: 20, diastolic: 80 }),
+    );
+    expect(rejected.ok).toBe(false);
+    expect((await httpProvider.getWard()).abstained.map((a) => a.id)).toContain("p-004");
+
+    const recorded = await httpProvider.recordVitals("p-004", { systolic: 130, diastolic: 84 });
+    expect(recorded.ranked).toBe(true);
+    expect(recorded.rank).not.toBeNull();
+    expect(recorded.score).not.toBeNull();
+    expect(recorded.blood_pressure?.provenance.source).toBe("nurse");
+
+    const after = await httpProvider.getWard();
+    expect(after.ranked.map((r) => r.id)).toContain("p-004");
+    expect(after.abstained.map((a) => a.id)).not.toContain("p-004");
+    expect(await httpProvider.getPatient("p-004")).not.toBeNull();
+  });
+
+  it("the fixture provider cannot re-rank and says so", async () => {
+    const failure = await attempt(() =>
+      fixtureProvider.recordVitals("p-004", { systolic: 130, diastolic: 84 }),
+    );
+    expect(failure.ok).toBe(false);
+  });
+});
+
+function httpSignIn(clinicianId: string): void {
+  setAuthToken(clinicianId);
+}

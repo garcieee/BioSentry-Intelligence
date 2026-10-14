@@ -16,8 +16,8 @@
 Labels one 10 s window of single-lead ECG as one of four classes: `N` (normal rhythm), `AF`,
 `Other` rhythm, `Noisy`. The Tier B finding is **AF burden** = windows labelled AF / windows
 accepted (a `Noisy` window is a refusal and leaves the denominator; a gap is never counted as
-normal or as AF), reported with its coverage. It ranks and displays; a human decides. It is not a
-diagnosis.
+normal or as AF), reported with its coverage. It displays; a human decides. It does not rank (Tier B
+never ranks, I3) and it is not a diagnosis.
 
 ## Interface
 

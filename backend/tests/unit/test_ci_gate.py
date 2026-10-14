@@ -110,6 +110,14 @@ def _uses(workflow: dict[Any, Any]) -> list[tuple[str, str]]:
     return found
 
 
+def _is_external_action(ref: str) -> bool:
+    """Whether `ref` is pulled from outside the repo by name, so a commit SHA is what pins it.
+
+    In-repo actions (`./path`) are exempt; an image (`docker://`) is pinned by a digest instead.
+    """
+    return not ref.startswith(("./", "docker://"))
+
+
 def unpinned_uses(workflow: dict[Any, Any]) -> list[str]:
     """What the workflow pulls from outside the repo must be an immutable commit or digest.
 
@@ -120,7 +128,7 @@ def unpinned_uses(workflow: dict[Any, Any]) -> list[str]:
     for where, ref in _uses(workflow):
         if ref.startswith("./"):
             continue
-        if ref.startswith("docker://"):
+        if not _is_external_action(ref):  # docker://image
             image, _, digest = ref.removeprefix("docker://").partition("@")
             if not image or not IMAGE_DIGEST.fullmatch(digest):
                 problems.append(f"{where} uses {ref!r}: pin the image to a sha256 digest")
@@ -298,31 +306,65 @@ def test_narrowing_and_the_informational_job_are_allowed(change: Any) -> None:
 SHA = "11bd71901bbe5b1630ceea73d27597364c9af683"  # actions/checkout v4.2.2 (as the workflow has it)
 
 
-def _real_uses() -> list[tuple[str, str]]:
-    return _uses(_workflow())
-
-
-def test_every_action_the_workflow_runs_is_pinned_to_a_commit() -> None:
-    assert unpinned_uses(_workflow()) == []
-
-
-def test_the_pin_check_has_something_to_look_at() -> None:
-    uses = _real_uses()
-    assert len(uses) >= 10
-    assert {ref.partition("@")[0] for _, ref in uses} >= {
-        "actions/checkout",
-        "actions/setup-node",
-        "actions/setup-python",
-    }
-    assert all(COMMIT_SHA.fullmatch(ref.partition("@")[2]) for _, ref in uses)
-
-
 def _set_uses(job_id: str, ref: str) -> Any:
     return lambda w: w["jobs"][job_id]["steps"][0].__setitem__("uses", ref)
 
 
 def _add_step(job_id: str, step: dict[str, Any]) -> Any:
     return lambda w: w["jobs"][job_id]["steps"].append(step)
+
+
+# The shapes the checker allows besides a commit-pinned action: an in-repo action or workflow,
+# and an image pinned by digest. A sanity test that held these to "40-hex SHA" would turn red
+# on a legitimate edit, so they are cases of the same loop that checks the real file.
+ALLOWED_BESIDES_A_COMMIT = [
+    "./.github/actions/local",
+    "./.github/workflows/reusable.yml",
+    f"docker://alpine@sha256:{'ab' * 32}",
+]
+
+
+def _with_allowed_shapes(workflow: dict[Any, Any]) -> dict[Any, Any]:
+    out = copy.deepcopy(workflow)
+    for ref in ALLOWED_BESIDES_A_COMMIT:
+        out["jobs"]["py-test"]["steps"].append({"uses": ref})
+    return out
+
+
+def _assert_pins_are_what_the_checker_means(workflow: dict[Any, Any]) -> None:
+    assert unpinned_uses(workflow) == []
+    uses = _uses(workflow)
+    external = [ref for _, ref in uses if _is_external_action(ref)]
+    assert len(external) >= 10, "the pin check would be looking at nothing"
+    assert {ref.partition("@")[0] for ref in external} >= {
+        "actions/checkout",
+        "actions/setup-node",
+        "actions/setup-python",
+    }
+    assert all(COMMIT_SHA.fullmatch(ref.partition("@")[2]) for ref in external)
+    # Everything that is not an external action is one of the allowed shapes, never a name.
+    for _, ref in uses:
+        if not _is_external_action(ref):
+            assert ref.startswith("./") or IMAGE_DIGEST.search(ref), ref
+
+
+@pytest.mark.parametrize(
+    "workflow",
+    [_workflow(), _with_allowed_shapes(_workflow())],
+    ids=["the real workflow", "the real workflow plus every allowed shape"],
+)
+def test_the_pin_check_looks_at_something_and_agrees_with_itself(workflow: dict[Any, Any]) -> None:
+    _assert_pins_are_what_the_checker_means(workflow)
+
+
+def test_every_action_the_workflow_runs_is_pinned_to_a_commit() -> None:
+    assert unpinned_uses(_workflow()) == []
+
+
+def test_the_allowed_shapes_are_not_external_actions() -> None:
+    for ref in ALLOWED_BESIDES_A_COMMIT:
+        assert not _is_external_action(ref), ref
+    assert _is_external_action(f"actions/checkout@{SHA}")
 
 
 @pytest.mark.parametrize(

@@ -1,4 +1,4 @@
-.PHONY: web-install web-dev web-build web-typecheck web-lint check
+.PHONY: web-install web-dev web-build web-typecheck web-lint web-test check
 
 FRONTEND := frontend
 
@@ -16,6 +16,9 @@ web-typecheck:
 
 web-lint:
 	cd $(FRONTEND) && npm run lint
+
+web-test:
+	cd $(FRONTEND) && npm test
 
 check: web-typecheck
 

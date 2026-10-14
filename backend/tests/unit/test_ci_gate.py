@@ -2,8 +2,9 @@
 
 Two kinds of check live here: the gate's own shape (ci-gate needs every required job, always
 runs, fails on anything but success) and the privilege bars (P3: a workflow edit may only add
-checks): the token stays read-only, no privileged trigger, and a failing job cannot be waved
-through by `continue-on-error` unless it is the informational audit job.
+checks): the token stays read-only, no privileged trigger, a failing job cannot be waved
+through by `continue-on-error` unless it is the informational audit job, and everything the
+workflow runs from outside the repo is pinned to an immutable commit.
 """
 
 import copy
@@ -18,7 +19,12 @@ WORKFLOW = Path(__file__).resolve().parents[3] / ".github" / "workflows" / "ci.y
 INFORMATIONAL = {"audit"}  # reported, never required
 # What the token may be given, at the workflow and at any job: read access to the contents.
 READ_ONLY = {"contents": "read"}
-FORBIDDEN_TRIGGERS = {"pull_request_target"}  # runs fork code with the base repo's token
+# Triggers that run with the base repository's token and secrets, on code or artefacts a pull
+# request controls: pull_request_target runs the fork's code, workflow_run consumes what an
+# unprivileged workflow produced.
+FORBIDDEN_TRIGGERS = {"pull_request_target", "workflow_run"}
+COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
+IMAGE_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 def _text() -> str:
@@ -92,6 +98,47 @@ def _is_narrowing(granted: Any) -> bool:
     )
 
 
+def _uses(workflow: dict[Any, Any]) -> list[tuple[str, str]]:
+    """Every `uses:` in the workflow, with where it is: job-level (reusable workflow) and steps."""
+    found: list[tuple[str, str]] = []
+    for job_id, job in workflow["jobs"].items():
+        if "uses" in job:
+            found.append((f"job {job_id}", str(job["uses"])))
+        for index, step in enumerate(job.get("steps", [])):
+            if "uses" in step:
+                found.append((f"job {job_id} step {index}", str(step["uses"])))
+    return found
+
+
+def _is_external_action(ref: str) -> bool:
+    """Whether `ref` is pulled from outside the repo by name, so a commit SHA is what pins it.
+
+    In-repo actions (`./path`) are exempt; an image (`docker://`) is pinned by a digest instead.
+    """
+    return not ref.startswith(("./", "docker://"))
+
+
+def unpinned_uses(workflow: dict[Any, Any]) -> list[str]:
+    """What the workflow pulls from outside the repo must be an immutable commit or digest.
+
+    A tag or branch can be moved by whoever owns the action; a full 40-hex commit SHA cannot.
+    In-repo actions (`./path`) are part of the commit under test and are exempt.
+    """
+    problems: list[str] = []
+    for where, ref in _uses(workflow):
+        if ref.startswith("./"):
+            continue
+        if not _is_external_action(ref):  # docker://image
+            image, _, digest = ref.removeprefix("docker://").partition("@")
+            if not image or not IMAGE_DIGEST.fullmatch(digest):
+                problems.append(f"{where} uses {ref!r}: pin the image to a sha256 digest")
+            continue
+        _, at, version = ref.partition("@")
+        if not at or not COMMIT_SHA.fullmatch(version):
+            problems.append(f"{where} uses {ref!r}: pin to a full 40-hex commit SHA")
+    return problems
+
+
 def privilege_violations(workflow: dict[Any, Any]) -> list[str]:
     problems: list[str] = []
     for trigger in sorted(_triggers(workflow) & FORBIDDEN_TRIGGERS):
@@ -100,6 +147,7 @@ def privilege_violations(workflow: dict[Any, Any]) -> list[str]:
         problems.append(
             f"workflow permissions must be exactly {READ_ONLY}, not {workflow.get('permissions')!r}"
         )
+    problems.extend(unpinned_uses(workflow))
     for job_id, job in workflow["jobs"].items():
         if "permissions" in job and not _is_narrowing(job["permissions"]):
             problems.append(f"job {job_id} broadens permissions: {job['permissions']!r}")
@@ -175,16 +223,16 @@ def _on_key(w: dict[Any, Any]) -> Any:
     return "on" if "on" in w else True
 
 
-def _trigger_dict(w: dict[Any, Any]) -> None:
-    w[_on_key(w)] = {**w[_on_key(w)], "pull_request_target": {"branches": ["main"]}}
+def _trigger_dict(trigger: str) -> Any:
+    return lambda w: w.__setitem__(_on_key(w), {**w[_on_key(w)], trigger: {"branches": ["main"]}})
 
 
-def _trigger_list(w: dict[Any, Any]) -> None:
-    w[_on_key(w)] = ["pull_request", "pull_request_target"]
+def _trigger_list(trigger: str) -> Any:
+    return lambda w: w.__setitem__(_on_key(w), ["pull_request", trigger])
 
 
-def _trigger_string(w: dict[Any, Any]) -> None:
-    w[_on_key(w)] = "pull_request_target"
+def _trigger_string(trigger: str) -> Any:
+    return lambda w: w.__setitem__(_on_key(w), trigger)
 
 
 @pytest.mark.parametrize(
@@ -212,9 +260,12 @@ def _trigger_string(w: dict[Any, Any]) -> None:
         ("job id-token", _job("build", "permissions", {"id-token": "write"}), "job build broadens"),
         ("job write-all", _job("test", "permissions", "write-all"), "job test broadens"),
         ("job read-all", _job("test", "permissions", "read-all"), "job test broadens"),
-        ("trigger as mapping", _trigger_dict, "pull_request_target"),
-        ("trigger as list", _trigger_list, "pull_request_target"),
-        ("trigger as string", _trigger_string, "pull_request_target"),
+        ("target as mapping", _trigger_dict("pull_request_target"), "pull_request_target"),
+        ("target as list", _trigger_list("pull_request_target"), "pull_request_target"),
+        ("target as string", _trigger_string("pull_request_target"), "pull_request_target"),
+        ("run as mapping", _trigger_dict("workflow_run"), "workflow_run"),
+        ("run as list", _trigger_list("workflow_run"), "workflow_run"),
+        ("run as string", _trigger_string("workflow_run"), "workflow_run"),
         ("job continue-on-error", _job("py-test", "continue-on-error", True), "job py-test sets"),
         ("gate continue-on-error", _job("ci-gate", "continue-on-error", True), "job ci-gate sets"),
         (
@@ -248,3 +299,117 @@ def test_each_privilege_bar_fails_when_it_is_broken(name: str, change: Any, ment
 )
 def test_narrowing_and_the_informational_job_are_allowed(change: Any) -> None:
     assert privilege_violations(_mutated(change)) == []
+
+
+# --- Pinning: nothing is run from outside the repo by a name that can be moved -------------
+
+SHA = "11bd71901bbe5b1630ceea73d27597364c9af683"  # actions/checkout v4.2.2 (as the workflow has it)
+
+
+def _set_uses(job_id: str, ref: str) -> Any:
+    return lambda w: w["jobs"][job_id]["steps"][0].__setitem__("uses", ref)
+
+
+def _add_step(job_id: str, step: dict[str, Any]) -> Any:
+    return lambda w: w["jobs"][job_id]["steps"].append(step)
+
+
+# The shapes the checker allows besides a commit-pinned action: an in-repo action or workflow,
+# and an image pinned by digest. A sanity test that held these to "40-hex SHA" would turn red
+# on a legitimate edit, so they are cases of the same loop that checks the real file.
+ALLOWED_BESIDES_A_COMMIT = [
+    "./.github/actions/local",
+    "./.github/workflows/reusable.yml",
+    f"docker://alpine@sha256:{'ab' * 32}",
+]
+
+
+def _with_allowed_shapes(workflow: dict[Any, Any]) -> dict[Any, Any]:
+    out = copy.deepcopy(workflow)
+    for ref in ALLOWED_BESIDES_A_COMMIT:
+        out["jobs"]["py-test"]["steps"].append({"uses": ref})
+    return out
+
+
+def _assert_pins_are_what_the_checker_means(workflow: dict[Any, Any]) -> None:
+    assert unpinned_uses(workflow) == []
+    uses = _uses(workflow)
+    external = [ref for _, ref in uses if _is_external_action(ref)]
+    assert len(external) >= 10, "the pin check would be looking at nothing"
+    assert {ref.partition("@")[0] for ref in external} >= {
+        "actions/checkout",
+        "actions/setup-node",
+        "actions/setup-python",
+    }
+    assert all(COMMIT_SHA.fullmatch(ref.partition("@")[2]) for ref in external)
+    # Everything that is not an external action is one of the allowed shapes, never a name.
+    for _, ref in uses:
+        if not _is_external_action(ref):
+            assert ref.startswith("./") or IMAGE_DIGEST.search(ref), ref
+
+
+@pytest.mark.parametrize(
+    "workflow",
+    [_workflow(), _with_allowed_shapes(_workflow())],
+    ids=["the real workflow", "the real workflow plus every allowed shape"],
+)
+def test_the_pin_check_looks_at_something_and_agrees_with_itself(workflow: dict[Any, Any]) -> None:
+    _assert_pins_are_what_the_checker_means(workflow)
+
+
+def test_every_action_the_workflow_runs_is_pinned_to_a_commit() -> None:
+    assert unpinned_uses(_workflow()) == []
+
+
+def test_the_allowed_shapes_are_not_external_actions() -> None:
+    for ref in ALLOWED_BESIDES_A_COMMIT:
+        assert not _is_external_action(ref), ref
+    assert _is_external_action(f"actions/checkout@{SHA}")
+
+
+@pytest.mark.parametrize(
+    ("name", "change"),
+    [
+        ("a tag", _set_uses("typecheck", "actions/checkout@v4")),
+        ("a full tag", _set_uses("typecheck", "actions/checkout@v4.2.2")),
+        ("a branch", _set_uses("typecheck", "actions/checkout@main")),
+        ("a short sha", _set_uses("typecheck", "actions/checkout@11bd719")),
+        ("a 39-hex sha", _set_uses("typecheck", f"actions/checkout@{SHA[:-1]}")),
+        ("a 41-hex sha", _set_uses("typecheck", f"actions/checkout@{SHA}0")),
+        ("an upper-case sha", _set_uses("typecheck", f"actions/checkout@{SHA.upper()}")),
+        ("no version at all", _set_uses("typecheck", "actions/checkout")),
+        ("an unpinned action added later", _add_step("py-test", {"uses": "acme/deploy@v1"})),
+        ("an image by tag", _add_step("py-test", {"uses": "docker://alpine:3.20"})),
+        (
+            "an image by a short digest",
+            _add_step("py-test", {"uses": "docker://alpine@sha256:abc"}),
+        ),
+        (
+            "a reusable workflow by branch",
+            lambda w: w["jobs"]["lint"].__setitem__(
+                "uses", "acme/ci/.github/workflows/lint.yml@main"
+            ),
+        ),
+    ],
+)
+def test_an_action_that_is_not_pinned_to_a_commit_is_flagged(name: str, change: Any) -> None:
+    problems = privilege_violations(_mutated(change))
+    assert problems, f"{name}: nothing was flagged"
+    assert any("pin" in p for p in problems), (name, problems)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        _set_uses("typecheck", f"actions/checkout@{SHA}"),
+        _add_step("py-test", {"uses": f"acme/deploy/sub/action@{SHA}"}),
+        _add_step("py-test", {"uses": "./.github/actions/local"}),
+        _add_step("py-test", {"uses": f"docker://alpine@sha256:{'ab' * 32}"}),
+        lambda w: w["jobs"]["lint"].__setitem__(
+            "uses", f"acme/ci/.github/workflows/lint.yml@{SHA}"
+        ),
+    ],
+    ids=["sha", "subpath", "in-repo", "image digest", "reusable by sha"],
+)
+def test_a_commit_a_digest_and_an_in_repo_action_are_allowed(change: Any) -> None:
+    assert unpinned_uses(_mutated(change)) == []

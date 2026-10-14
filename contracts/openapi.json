@@ -2131,12 +2131,21 @@
       },
       "VitalHistory": {
         "additionalProperties": false,
+        "description": "One 15-minute bin of a vital. `value` is null for a gap: never zero, never filled (I1).",
         "properties": {
           "time": {
+            "format": "date-time",
             "type": "string"
           },
           "value": {
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2178,28 +2187,57 @@
       },
       "VitalTrends": {
         "additionalProperties": false,
+        "description": "Sparkline series, oldest first, one entry per 15-minute bin. null = gap (I1).",
         "properties": {
           "heart_rate": {
             "items": {
-              "type": "number"
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "type": "array"
           },
           "respiratory_rate": {
             "items": {
-              "type": "number"
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "type": "array"
           },
           "spo2": {
             "items": {
-              "type": "number"
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "type": "array"
           },
           "temperature": {
             "items": {
-              "type": "number"
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "type": "array"
           }

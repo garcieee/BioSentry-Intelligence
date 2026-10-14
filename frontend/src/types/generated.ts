@@ -517,10 +517,14 @@ export interface components {
          * @enum {string}
          */
         readonly Trend: "rising" | "falling" | "stable" | "insufficient";
-        /** VitalHistory */
+        /**
+         * VitalHistory
+         * @description One 15-minute bin of a vital. `value` is null for a gap: never zero, never filled (I1).
+         */
         readonly VitalHistory: {
+            /** Format: date-time */
             readonly time: string;
-            readonly value: number;
+            readonly value: number | null;
         };
         /** VitalHistoryFull */
         readonly VitalHistoryFull: {
@@ -539,12 +543,15 @@ export interface components {
             readonly supplemental_o2: components["schemas"]["FlagMeasurement"];
             readonly temperature: components["schemas"]["NumberMeasurement"];
         };
-        /** VitalTrends */
+        /**
+         * VitalTrends
+         * @description Sparkline series, oldest first, one entry per 15-minute bin. null = gap (I1).
+         */
         readonly VitalTrends: {
-            readonly heart_rate: readonly number[];
-            readonly respiratory_rate: readonly number[];
-            readonly spo2: readonly number[];
-            readonly temperature: readonly number[];
+            readonly heart_rate: readonly (number | null)[];
+            readonly respiratory_rate: readonly (number | null)[];
+            readonly spo2: readonly (number | null)[];
+            readonly temperature: readonly (number | null)[];
         };
         /** WardResponse */
         readonly WardResponse: {

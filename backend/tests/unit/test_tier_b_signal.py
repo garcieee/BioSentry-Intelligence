@@ -1,0 +1,255 @@
+"""M2a: R peaks, HRV, burden and baseline score against exact synthetic truth; gaps stay gaps."""
+
+import math
+
+import numpy as np
+import pytest
+from no_imputation import assert_no_imputation
+from synth_ecg import SynthEcg, f1_within, synth_ecg
+
+from biosentry.domain.computed import Computed, NotComputed
+from biosentry.domain.scoring.tier_b.burden import (
+    Baseline,
+    hr_burden,
+    robust_baseline,
+    robust_z,
+)
+from biosentry.domain.scoring.tier_b.ecg import detect_beats
+from biosentry.domain.scoring.tier_b.hrv import HrvValue, compute_hrv, hrv_window, nn_intervals
+from biosentry.domain.signals import SignalInput
+from biosentry.schemas import Provenance
+from samples import provenance
+
+PROV = Provenance.model_validate(provenance())
+
+
+def _rmssd_ms(intervals: list[float]) -> float:
+    d = np.diff(np.asarray(intervals))
+    return float(np.sqrt(np.mean(d * d)) * 1000.0)
+
+
+def _truth_nn(ecg: SynthEcg) -> list[float]:
+    """Sinus-to-sinus intervals only: drop any interval that touches a premature beat or the
+    pause that follows it."""
+    t, e = ecg.r_times_s, ecg.ectopic
+    out: list[float] = []
+    for i in range(len(t) - 1):
+        around = e[max(0, i - 1) : i + 2]
+        if not any(around):
+            out.append(t[i + 1] - t[i])
+    return out
+
+
+def _signal(ecg: SynthEcg, window_s: float) -> SignalInput:
+    n = len(ecg.samples)
+    return SignalInput(ecg.fs, window_s, ecg.samples, (True,) * n)
+
+
+# --- R peaks ---------------------------------------------------------------------------
+
+
+def test_r_peaks_clean_signal_scores_near_perfect() -> None:
+    ecg = synth_ecg(duration_s=90, seed=1)
+    beats = detect_beats(ecg.samples, (True,) * len(ecg.samples), ecg.fs)
+    assert f1_within(ecg.r_times_s, beats.times_s) >= 0.99
+
+
+def test_r_peaks_survive_noise_and_wander() -> None:
+    ecg = synth_ecg(duration_s=90, noise_sd_mv=0.08, wander_mv=0.3, seed=2)
+    beats = detect_beats(ecg.samples, (True,) * len(ecg.samples), ecg.fs)
+    assert f1_within(ecg.r_times_s, beats.times_s) >= 0.97
+
+
+def test_no_beat_is_reported_inside_a_gap_and_no_interval_spans_it() -> None:
+    ecg = synth_ecg(duration_s=60, seed=3)
+    lo, hi = 20 * 250, 30 * 250
+    samples = tuple(float("nan") if lo <= i < hi else x for i, x in enumerate(ecg.samples))
+    usable = tuple(not (lo <= i < hi) for i in range(len(samples)))
+    beats = detect_beats(samples, usable, ecg.fs)
+    assert beats.times_s, "beats are expected outside the gap"
+    assert not any(20.0 <= t < 30.0 for t in beats.times_s)
+    assert len(set(beats.run)) == 2  # one run before the gap, one after
+    nn, _, _ = nn_intervals(beats)
+    first_after = next(i for i, r in enumerate(beats.run) if r == 1)
+    assert math.isnan(nn[first_after - 1]), "the interval across the gap must be excluded"
+
+
+def test_unusable_samples_are_ignored_even_when_they_are_finite() -> None:
+    # real gaps are often finite garbage under usable=False (samples that failed SQI), so the
+    # mask alone has to hide them: here the "gap" holds 5 mV spikes at beat-like spacing
+    ecg = synth_ecg(duration_s=60, seed=11)
+    lo, hi = 20 * 250, 30 * 250
+    samples = list(ecg.samples)
+    for i in range(lo, hi, 200):
+        samples[i] = 5.0
+    usable = tuple(not (lo <= i < hi) for i in range(len(samples)))
+    beats = detect_beats(samples, usable, ecg.fs)
+    assert any(t < 20.0 for t in beats.times_s)
+    assert any(t >= 30.0 for t in beats.times_s)
+    assert not any(20.0 <= t < 30.0 for t in beats.times_s)
+
+
+def test_no_interval_spans_a_short_gap_even_when_it_would_look_normal() -> None:
+    # a 0.6 s gap that swallows no beat: the two beats around it are both good and the
+    # interval between them is a plausible 1.3 s, so only the run boundary can exclude it
+    ecg = synth_ecg(duration_s=60, hr_bpm=45, rr_sd_s=0.01, seed=12)
+    k = next(i for i, t in enumerate(ecg.r_times_s) if t > 25.0)
+    t_k = ecg.r_times_s[k]
+    lo, hi = round((t_k + 0.42) * 250), round((t_k + 1.02) * 250)
+    assert ecg.r_times_s[k + 1] > hi / 250 + 0.25  # the next beat survives with a full window
+    samples = tuple(float("nan") if lo <= i < hi else x for i, x in enumerate(ecg.samples))
+    usable = tuple(not (lo <= i < hi) for i in range(len(samples)))
+    beats = detect_beats(samples, usable, ecg.fs)
+    i = min(range(len(beats.times_s)), key=lambda j: abs(beats.times_s[j] - t_k))
+    assert beats.valid[i]
+    assert beats.valid[i + 1]
+    assert beats.run[i] != beats.run[i + 1]
+    nn, _, _ = nn_intervals(beats)
+    assert math.isnan(nn[i])
+
+
+def test_a_notched_qrs_counts_as_one_beat() -> None:
+    ecg = synth_ecg(duration_s=60, seed=14)
+    axis = np.arange(len(ecg.samples)) / ecg.fs
+    x = np.asarray(ecg.samples)
+    for tb in ecg.r_times_s:  # a second spike 0.18 s later, inside the 0.25 s refractory period
+        x = x + 0.6 * np.exp(-0.5 * ((axis - (tb + 0.18)) / 0.012) ** 2)
+    beats = detect_beats(tuple(float(v) for v in x), (True,) * len(x), ecg.fs)
+    assert len(beats.times_s) <= len(ecg.r_times_s)
+    assert f1_within(ecg.r_times_s, beats.times_s) >= 0.97
+
+
+def test_beats_that_do_not_match_the_template_are_flagged_and_left_out_of_hrv() -> None:
+    ecg = synth_ecg(duration_s=60, rr_sd_s=0.03, seed=13)
+    lo, hi = 40 * 250, 52 * 250  # twelve seconds of polarity-inverted complexes
+    samples = tuple(-x if lo <= i < hi else x for i, x in enumerate(ecg.samples))
+    beats = detect_beats(samples, (True,) * len(samples), ecg.fs)
+    pairs = list(zip(beats.times_s, beats.valid, strict=True))
+    inside = [v for t, v in pairs if 40.5 <= t < 51.5]
+    clean = [v for t, v in pairs if t < 39.5 or t > 52.5]
+    assert len(inside) >= 10
+    assert not any(inside)
+    assert sum(clean) / len(clean) > 0.9
+    nn, _, _ = nn_intervals(beats)
+    bad_pairs = [i for i in range(len(nn)) if 40.5 <= beats.times_s[i] < 51.0]
+    assert all(math.isnan(nn[i]) for i in bad_pairs)
+
+
+# --- HRV -------------------------------------------------------------------------------
+
+
+def test_hrv_matches_truth_on_a_clean_window() -> None:
+    ecg = synth_ecg(duration_s=60, rr_sd_s=0.04, seed=4)
+    got = hrv_window(ecg.samples, (True,) * len(ecg.samples), ecg.fs)
+    assert isinstance(got, HrvValue)
+    truth = _rmssd_ms(_truth_nn(ecg))
+    assert got.rmssd_ms == pytest.approx(truth, rel=0.10)
+    assert got.mean_hr_bpm == pytest.approx(70.0, rel=0.05)
+    assert got.nn_coverage > 0.9
+
+
+def test_premature_beats_are_excluded_and_counted_not_averaged_in() -> None:
+    ecg = synth_ecg(duration_s=90, rr_sd_s=0.03, pvc_after_s=(20.0, 50.0), seed=5)
+    got = hrv_window(ecg.samples, (True,) * len(ecg.samples), ecg.fs)
+    assert isinstance(got, HrvValue)
+    assert got.n_excluded >= 4  # a short and a long interval per premature beat, at least
+    assert got.rmssd_ms == pytest.approx(_rmssd_ms(_truth_nn(ecg)), rel=0.15)
+
+
+def test_irregular_rhythm_is_refused_with_a_reason() -> None:
+    ecg = synth_ecg(duration_s=90, irregular=True, seed=6)
+    got = hrv_window(ecg.samples, (True,) * len(ecg.samples), ecg.fs)
+    assert got == NotComputed("irregular_rhythm")
+
+
+def test_a_long_gap_refuses_the_window() -> None:
+    ecg = synth_ecg(duration_s=90, seed=7)
+    lo, hi = 10 * 250, 40 * 250  # a 30 s dropout
+    samples = tuple(float("nan") if lo <= i < hi else x for i, x in enumerate(ecg.samples))
+    usable = tuple(not (lo <= i < hi) for i in range(len(samples)))
+    assert hrv_window(samples, usable, ecg.fs) == NotComputed("gap_longer_than_20s")
+
+
+def test_hrv_never_imputes_across_a_gap() -> None:
+    ecg = synth_ecg(duration_s=180, seed=8)
+    signal = _signal(ecg, window_s=60.0)  # three 60 s windows
+    # drop the whole middle window; outer windows must be untouched
+    assert_no_imputation(lambda s: compute_hrv(s, PROV), signal, (60 * 250, 120 * 250))
+
+
+def test_partly_gapped_window_is_degraded_and_reports_its_coverage() -> None:
+    ecg = synth_ecg(duration_s=60, seed=9)
+    lo, hi = 5 * 250, 15 * 250  # 10 s of a 60 s window: 83% coverage, gap under 20 s
+    samples = tuple(float("nan") if lo <= i < hi else x for i, x in enumerate(ecg.samples))
+    valid = tuple(not (lo <= i < hi) for i in range(len(samples)))
+    signal = SignalInput(ecg.fs, 60.0, samples, valid)
+    (result,) = compute_hrv(signal, PROV)
+    assert isinstance(result, Computed)
+    assert result.quality.value == "degraded"
+    assert result.window.coverage == pytest.approx(1 - 10 / 60, abs=0.01)
+
+
+# --- burden and baseline ---------------------------------------------------------------
+
+
+def test_burden_counts_only_valid_minutes_and_reports_coverage() -> None:
+    hr = [80.0] * 60 + [120.0] * 30 + [float("nan")] * 30
+    usable = [True] * 90 + [False] * 30
+    got = hr_burden(hr, usable)
+    assert not isinstance(got, NotComputed)
+    assert got.minutes_over == 30
+    assert got.valid_minutes == 90
+    assert got.burden == pytest.approx(30 / 90)
+    assert got.coverage == pytest.approx(90 / 120)
+
+
+def test_unusable_minutes_stay_out_of_numerator_and_denominator_even_when_finite() -> None:
+    hr = [80.0] * 60 + [130.0] * 40 + [80.0] * 20  # the 130s were flagged unusable
+    usable = [True] * 60 + [False] * 40 + [True] * 20
+    got = hr_burden(hr, usable)
+    assert not isinstance(got, NotComputed)
+    assert got.minutes_over == 0
+    assert got.valid_minutes == 80
+    assert got.burden == 0.0
+    assert got.coverage == pytest.approx(80 / 120)
+
+
+def test_burden_refuses_when_coverage_is_too_low() -> None:
+    hr = [130.0] * 10 + [float("nan")] * 90
+    usable = [True] * 10 + [False] * 90
+    assert hr_burden(hr, usable) == NotComputed("coverage_below_minimum")
+
+
+def test_a_gap_is_not_normal_burden_ignores_missing_minutes() -> None:
+    # all valid minutes are high; half the series is missing: burden is 1.0, not 0.5
+    got = hr_burden([120.0] * 50 + [float("nan")] * 50, [True] * 50 + [False] * 50)
+    assert not isinstance(got, NotComputed)
+    assert got.burden == 1.0
+
+
+def test_baseline_is_robust_and_needs_enough_valid_minutes() -> None:
+    values = [70.0 + (i % 5) for i in range(120)] + [200.0]  # one wild outlier
+    base = robust_baseline(values, [True] * len(values))
+    assert isinstance(base, Baseline)
+    assert base.median == pytest.approx(72.0, abs=0.5)
+    assert base.n == 121
+    assert robust_baseline(values[:20], [True] * 20) == NotComputed("baseline_not_established")
+    gappy = robust_baseline(values, [i % 2 == 0 for i in range(len(values))], min_valid=100)
+    assert gappy == NotComputed("baseline_not_established")
+
+
+def test_baseline_only_looks_at_the_recent_horizon() -> None:
+    old, recent = [50.0] * 200, [90.0] * 100
+    base = robust_baseline(old + recent, [True] * 300, horizon=100, min_valid=60)
+    assert isinstance(base, Baseline)
+    assert base.median == 90.0
+
+
+def test_robust_z_refuses_a_flat_baseline_and_non_finite_values() -> None:
+    flat = Baseline(median=70.0, mad=0.0, n=100)
+    assert robust_z(80.0, flat) == NotComputed("baseline_has_no_spread")
+    spread = Baseline(median=70.0, mad=2.0, n=100)
+    assert robust_z(float("nan"), spread) == NotComputed("value_not_finite")
+    z = robust_z(79.0, spread)
+    assert isinstance(z, float)
+    assert z == pytest.approx(9.0 / (2.0 * 1.4826))

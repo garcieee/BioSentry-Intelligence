@@ -84,14 +84,24 @@ never lowers one below Tier A (PLAN ruling pending on README I3).
 
 ## 8. Leakage rules, as tests (not comments)
 
-Implemented now on the generator; each future builder must pass them unchanged:
+Implemented now on the generator; each future builder must pass them unchanged. They are
+necessary, not sufficient: a builder can pass all of them and still leak in a way they do not
+probe, so each corpus extractor also needs its own store-time and label-leak scans (below).
 
-1. `assert_no_future_dependence`: replacing everything after `t` (NaN, huge garbage, reversed)
-   leaves the features at `t` identical.
+
+1. `assert_no_future_dependence`: replacing everything after `t` (NaN, huge finite garbage,
+   reversed) leaves the features at `t` identical. Each perturbation has a control that only it
+   can expose, so none is dead weight.
 2. `assert_missing_stays_missing`: a vital with no data yields NaN value features and an explicit
    `__missing` flag; zero-filling fails the check.
-3. `assert_no_verdict_features`: no feature name carries a verdict or outcome term.
-4. `assert_patient_level_split`: no patient in both train and test.
+3. `assert_gap_is_stale_not_fresh`: with values before and after a mid-series gap, a query inside
+   the gap must read as NaN, or carry `age_min` at least as long as the gap and a window count
+   that shows the missing minutes. Forward-fill without the age fails.
+4. `assert_feature_names_allowed`: every name must match the declared schema
+   (`m4_leakage.FEATURE_NAME_RE`: `<vital>__<stat>`, `<lab>__<stat>`, `ctx__<field>`); an
+   allow-list, so a new name needs a reviewed schema change. The deny-list (no news2, tier,
+   finding, kdigo, arbiter, rank, priority, label, outcome or event term) is a second layer.
+5. `assert_patient_level_split`: no patient in both train and test.
 
 Still to add with the real extractors: store-time versus chart-time check per corpus (MIMIC
 `charttime` is not `storetime`), label-leak scan (no feature column correlates 1.0 with the

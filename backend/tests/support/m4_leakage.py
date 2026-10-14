@@ -8,6 +8,7 @@ something real to run on and so a leaky or imputing variant can prove the checks
 """
 
 import math
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 
 import numpy as np
@@ -23,6 +24,29 @@ FORBIDDEN_NAME_PARTS = (
     "news2", "tier_a", "tier_b", "tier_c", "finding", "kdigo", "arbiter", "escalat",
     "rank", "priority", "label", "outcome", "event",
 )  # fmt: skip
+PERTURBATIONS = ("nan", "garbage", "reversed")
+
+# The declared feature schema (training/M4_SPEC.md section 3). A name outside it fails; the
+# deny-list above is a second layer, not the gate.
+VITALS = (
+    "heart_rate", "respiratory_rate", "spo2", "temperature",
+    "systolic_bp", "diastolic_bp", "consciousness", "supplemental_o2",
+)  # fmt: skip
+LABS = ("lactate", "creatinine", "potassium", "sodium", "hemoglobin", "wbc", "troponin", "bnp")
+_WINDOW = r"(60|180|360)"
+VITAL_STATS = (
+    rf"(last|age_min|missing|delta_baseline|shock_index_last|n_valid_{_WINDOW}|"
+    rf"median_{_WINDOW}|min_{_WINDOW}|max_{_WINDOW}|slope_per_h_{_WINDOW}|"
+    rf"obs_count_{_WINDOW}|max_gap_min_{_WINDOW})"
+)
+LAB_STATS = r"(last|age_h|delta_prev|min_24h|max_24h|missing)"
+CONTEXT = (
+    r"ctx__(age_years|sex|admission_type|hours_since_admission|hours_since_surgery|unit_type|"
+    r"comorbidity_[a-z0-9_]+)"
+)
+FEATURE_NAME_RE = re.compile(
+    rf"^(?:(?:{'|'.join(VITALS)})__{VITAL_STATS}|(?:{'|'.join(LABS)})__{LAB_STATS}|{CONTEXT})$"
+)
 WINDOWS_MIN = (60, 180)
 MIN_POINTS_FOR_SLOPE = 10
 
@@ -85,11 +109,14 @@ def with_future_replaced(minutes: Mapping[str, Series], t: int, how: str) -> dic
 
 
 def assert_no_future_dependence(
-    builder: FeatureBuilder, minutes: Mapping[str, Series], t: int
+    builder: FeatureBuilder,
+    minutes: Mapping[str, Series],
+    t: int,
+    perturbations: Sequence[str] = PERTURBATIONS,
 ) -> None:
     """Features at t must not change when anything after t changes."""
     base = builder(minutes, t)
-    for how in ("nan", "garbage", "reversed"):
+    for how in perturbations:
         changed = builder(with_future_replaced(minutes, t, how), t)
         diff = _differing(base, changed)
         assert not diff, f"features at t={t} depend on the future ({how}): {diff}"
@@ -119,3 +146,38 @@ def assert_no_verdict_features(names: Iterable[str]) -> None:
 def assert_patient_level_split(train: Sequence[str], test: Sequence[str]) -> None:
     both = set(train) & set(test)
     assert not both, f"patients in both train and test: {sorted(both)}"
+
+
+def assert_gap_is_stale_not_fresh(
+    builder: FeatureBuilder, minutes: Mapping[str, Series], t: int, vital: str, gap_start: int
+) -> None:
+    """A mid-series gap must read as a gap at t.
+
+    `minutes[vital]` has values before `gap_start` and NaN from there through `t`. A builder
+    may report NaN, or the last real value *with* an age that covers the gap and a window
+    count that shows the missing minutes; it may not present an old value as current (what a
+    forward-fill does).
+    """
+    series = minutes[vital]
+    assert not np.isnan(series[gap_start - 1]), "the case needs a real value before the gap"
+    assert np.isnan(series[gap_start : t + 1]).all(), "the case needs the gap to cover t"
+    feats = builder(minutes, t)
+    in_gap = t - gap_start + 1
+    last = feats[f"{vital}__last"]
+    if not math.isnan(last):
+        age = feats[f"{vital}__age_min"]
+        assert age >= in_gap, f"{vital} reads as current: age_min={age} but the gap is {in_gap} min"
+        assert feats[f"{vital}__missing"] == 0.0, "a stale value still has history"
+    for w in WINDOWS_MIN:
+        count = feats[f"{vital}__n_valid_{w}"]
+        assert count <= max(0, w - min(in_gap, w)), (
+            f"{vital}__n_valid_{w}={count}: the {in_gap} missing minutes are not visible"
+        )
+
+
+def assert_feature_names_allowed(names: Iterable[str]) -> None:
+    """Every feature name must match the declared schema, and carry no verdict term."""
+    listed = list(names)
+    unknown = [n for n in listed if not FEATURE_NAME_RE.match(n)]
+    assert not unknown, f"feature names outside the declared schema: {unknown}"
+    assert_no_verdict_features(listed)

@@ -57,7 +57,7 @@ contract-check: contract-test contract
 
 BACKEND := backend
 
-.PHONY: be-install be-lint be-fmt be-test be-check be-serve data
+.PHONY: be-install be-lint be-fmt be-test be-check be-serve data http-contract
 
 # Direct deps are exact in pyproject.toml; constraints.txt pins the transitive closure.
 be-install:
@@ -85,3 +85,15 @@ data:
 # Serve the API on :8000 from the committed synthetic dataset (writes are in memory).
 be-serve:
 	$(PYTHON) -m uvicorn biosentry.api.main:app --port 8000
+
+# One contract suite over the fixture provider AND the HTTP provider: starts the API on :8765,
+# waits for /healthz, runs the suite with VITE_API_URL set, and always stops the server.
+http-contract:
+	@$(PYTHON) -m uvicorn biosentry.api.main:app --port 8765 --log-level warning & \
+	pid=$$!; \
+	trap 'kill $$pid 2>/dev/null' EXIT; \
+	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+	  curl -fs http://127.0.0.1:8765/healthz >/dev/null 2>&1 && break; sleep 0.5; \
+	done; \
+	curl -fs http://127.0.0.1:8765/healthz >/dev/null || { echo "API did not start"; exit 1; }; \
+	cd $(FRONTEND) && VITE_API_URL=http://127.0.0.1:8765 npx vitest run src/api/providers.contract.test.ts

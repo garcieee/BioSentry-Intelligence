@@ -901,7 +901,7 @@
       },
       "NurseVitalsInput": {
         "additionalProperties": false,
-        "description": "Nurse-entered NEWS2 inputs (POST /patients/{id}/vitals): any subset, at least one.\n\nBlood pressure is a pair. Omitted means not entered (the stored value is left alone);\nthere is no default and nothing is clamped: an impossible value is rejected.",
+        "description": "Nurse-entered NEWS2 inputs (POST /patients/{id}/vitals): any subset, at least one.\n\nBlood pressure is a pair. Omitted means not entered (the stored value is left alone);\nthere is no default and nothing is clamped: an impossible value is rejected. Device-sourced\nvalues (heart rate, respiratory rate, SpO2, temperature) are not accepted here. A stored\nvalue carries source `nurse`, a manual clinician entry; the audit row for the write\nrecords the clinician's id and role.",
         "properties": {
           "acvpu": {
             "anyOf": [
@@ -1712,6 +1712,7 @@
         "type": "object"
       },
       "ProvenanceSource": {
+        "description": "Where a value came from.\n\n`nurse` means a manual clinician entry: a person typed it, whatever their role. Who entered\nit is not on the measurement; the audit log holds the clinician id and role for the write\n(an `entered_by` field is a backlog item).",
         "enum": [
           "device",
           "nurse",

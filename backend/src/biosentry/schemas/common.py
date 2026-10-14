@@ -9,6 +9,13 @@ from .base import Contract, Flag, Num
 
 
 class ProvenanceSource(StrEnum):
+    """Where a value came from.
+
+    `nurse` means a manual clinician entry: a person typed it, whatever their role. Who entered
+    it is not on the measurement; the audit log holds the clinician id and role for the write
+    (an `entered_by` field is a backlog item).
+    """
+
     device = "device"
     nurse = "nurse"
     lab = "lab"

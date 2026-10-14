@@ -50,7 +50,10 @@ class NurseVitalsInput(Contract):
     """Nurse-entered NEWS2 inputs (POST /patients/{id}/vitals): any subset, at least one.
 
     Blood pressure is a pair. Omitted means not entered (the stored value is left alone);
-    there is no default and nothing is clamped: an impossible value is rejected.
+    there is no default and nothing is clamped: an impossible value is rejected. Device-sourced
+    values (heart rate, respiratory rate, SpO2, temperature) are not accepted here. A stored
+    value carries source `nurse`, a manual clinician entry; the audit row for the write
+    records the clinician's id and role.
     """
 
     systolic: Annotated[int, Field(strict=True)] | None = None

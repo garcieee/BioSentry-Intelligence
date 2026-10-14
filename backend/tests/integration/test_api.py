@@ -768,6 +768,24 @@ def test_a_newly_admitted_patient_can_be_recorded_but_stays_not_ranked_without_a
     assert recorded.not_ranked_reason == "No device data"
 
 
+# --- The audit row names the role --------------------------------------------------------
+
+
+def test_audit_rows_record_the_role_held_when_acting(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    _, client = app_and_client
+    client.get("/patients", headers=as_("rn-manalo"))
+    client.get("/patients", headers=as_("md-aquino"))
+    client.get("/patients")
+    rows = ctx(app_and_client).audit.records()
+    assert [(r.clinician_id, r.role) for r in rows] == [
+        ("rn-manalo", "charge_rn"),
+        ("md-aquino", "md"),
+        (None, None),
+    ]
+
+
 # --- The routes the frontend calls --------------------------------------------------------
 
 

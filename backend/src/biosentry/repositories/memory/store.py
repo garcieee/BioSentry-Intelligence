@@ -50,6 +50,10 @@ class MemoryStore:
     def knows_clinician(self, clinician_id: str) -> bool:
         return clinician_id in self.clinicians
 
+    def role_of(self, clinician_id: str) -> str | None:
+        entry = self.clinicians.get(clinician_id)
+        return entry.role if entry is not None else None
+
     def assigned(self, clinician_id: str) -> frozenset[str]:
         """The patients under this clinician's care. Unknown id: nobody (fails closed)."""
         entry = self.clinicians.get(clinician_id)

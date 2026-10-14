@@ -88,7 +88,7 @@ Who = Annotated[str, Depends(clinician)]
 def create_app(settings: Settings | None = None, clock: Clock = utc_now) -> FastAPI:
     settings = settings or Settings.from_env()
     store = memory_store.load(settings.dataset)
-    audit = AuditLog(clock)
+    audit = AuditLog(clock, role_of=store.role_of)
     ward_clock: Clock = (lambda: store.as_of) if settings.ward_time == "dataset" else clock
     logging.getLogger("biosentry.api").warning(
         "Identity is a stub: the bearer token IS the clinician id. Never expose this server "

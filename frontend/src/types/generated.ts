@@ -240,7 +240,10 @@ export interface components {
          * @description Nurse-entered NEWS2 inputs (POST /patients/{id}/vitals): any subset, at least one.
          *
          *     Blood pressure is a pair. Omitted means not entered (the stored value is left alone);
-         *     there is no default and nothing is clamped: an impossible value is rejected.
+         *     there is no default and nothing is clamped: an impossible value is rejected. Device-sourced
+         *     values (heart rate, respiratory rate, SpO2, temperature) are not accepted here. A stored
+         *     value carries source `nurse`, a manual clinician entry; the audit row for the write
+         *     records the clinician's id and role.
          */
         readonly NurseVitalsInput: {
             /** @default null */
@@ -412,6 +415,11 @@ export interface components {
         };
         /**
          * ProvenanceSource
+         * @description Where a value came from.
+         *
+         *     `nurse` means a manual clinician entry: a person typed it, whatever their role. Who entered
+         *     it is not on the measurement; the audit log holds the clinician id and role for the write
+         *     (an `entered_by` field is a backlog item).
          * @enum {string}
          */
         readonly ProvenanceSource: "device" | "nurse" | "lab" | "derived" | "model" | "reference";

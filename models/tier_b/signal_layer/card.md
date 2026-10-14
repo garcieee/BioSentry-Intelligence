@@ -69,7 +69,7 @@ Nothing is interpolated, resampled or filled; a gap is a gap (I1).
 | RR | band | 6-30 breaths/min | plausible adult range |
 | RR | agreement | within 3 breaths/min, at least 2 of 3 estimators | design |
 | RR | spectral prominence (peak / mean band power) | at least 8 | tuned: noise alone median 3.8, max 7.1; 6 gave false votes |
-| RR | valid beats needed / accelerometer minimum run | 8 / 20 s | design; the 20 s is not the binding limit, see Limits |
+| RR | valid beats needed / accelerometer minimum run | 8 / 20 s | design; the longest run must reach about 30 s, see Limits |
 | RR | channel coverage floor to vote | 50% of the window | design |
 
 ## Evidence
@@ -89,13 +89,14 @@ SciPy or pandas or uses interpolation, resampling or fill functions.
   perfusion index and is not corrected.
 - Respiratory rate from ECG or PPG amplitude is a weak channel by nature; the gate refuses
   more often than it reports.
-- **The accelerometer vote needs about 30 s of contiguous signal.** Its spectral prominence
-  (peak over mean band power) of a clean tone grows with run length, so the gate of 8 is crossed
-  only at about 30 s, whatever the amplitude. In a 32 s window a gap of 2 s or more (a run of
-  29 s or less) makes the accelerometer abstain, so the 20 s minimum run is not the binding
-  limit. Consequence: a window with more than a short gap loses its third vote and the 2-of-3
-  agreement refuses more often (`NotComputed`) than the 20 s rule suggests. The same estimator
-  votes through a 6 s gap in a 64 s window (tested). Measured on synthetic signals at 15
-  breaths/min; real noise only lowers prominence.
+- **The accelerometer vote needs a contiguous run of about 30 s.** Its spectral prominence (peak
+  over mean band power) of a clean tone grows with run length, so the gate of 8 is crossed only
+  at about 30 s, whatever the amplitude, and the estimator uses the longest gap-free run. In a
+  32 s window a gap at either edge of 2 s or more silences it, and a gap near the middle splits
+  the window into runs under 20 s, so even about 1 s kills the vote: the 20 s minimum run is not
+  the only limit. Consequence: a window with a gap loses its third vote and the 2-of-3
+  agreement refuses more often (`NotComputed`) than the 20 s rule suggests. A 64 s window
+  tolerates a 6 s gap because a 30 s or longer run survives (tested). Measured on synthetic
+  signals at 15 breaths/min; real noise only lowers prominence.
 - **Freedom to operate not cleared**: respiratory-rate-from-ECG/PPG methods fall under an
   Oxford patent (US11103155B2, to about 2038). Research and competition use only until cleared.

@@ -62,6 +62,15 @@ def test_normalisation_matches_the_reference_including_the_clip(
     assert (np.abs(golden["x_norm"]) == 10.0).any(axis=1).sum() >= 3  # in several windows
 
 
+def test_preprocess_end_to_end_matches_the_reference_normalised_window(
+    weights: rc.Weights, golden: dict[str, np.ndarray]
+) -> None:
+    # raw window -> band-pass -> normalise, in one call, against the reference's final input
+    got = np.stack([rc.preprocess(w.tolist(), weights) for w in golden["x_raw"]])
+    assert got.dtype == np.float32
+    assert np.abs(got - golden["x_norm"]).max() < 4e-6
+
+
 def test_a_flat_window_is_normalised_through_the_epsilon_not_divided_by_zero(
     weights: rc.Weights,
 ) -> None:
@@ -437,6 +446,17 @@ def test_a_finite_float64_that_overflows_float32_is_refused_not_labelled(
     assert rc.RhythmLabeller(weights, precision).probabilities(
         window, [True] * rc.WINDOW
     ) == NotComputed("sample_out_of_float32_range")
+
+
+@pytest.mark.parametrize("precision", ["fp32", "int8"])
+@pytest.mark.parametrize("position", [0, 1250, rc.WINDOW - 1])
+def test_one_overflowing_sample_amid_zeros_is_refused_with_the_input_reason(
+    weights: rc.Weights, precision: rc.Precision, position: int
+) -> None:
+    window = [0.0] * rc.WINDOW
+    window[position] = 1e39  # finite as a float64, inf as a float32
+    got = rc.RhythmLabeller(weights, precision).label(window, [True] * rc.WINDOW)
+    assert got == NotComputed("sample_out_of_float32_range")
 
 
 @pytest.mark.parametrize("precision", ["fp32", "int8"])

@@ -1,0 +1,39 @@
+# Model registry (PLAN, Models principle). Rules, enforced by tests/unit/test_registry.py:
+#   licence is a verified https URL or `unverified`; `unverified` never carries
+#   status: production. A learned model past `scaffold` needs the sha256 of its artifact.
+models:
+  - id: tier_a/news2
+    tier: A
+    kind: deterministic
+    version: rcp-2017
+    status: implemented
+    sha256: null
+    corpus: ["RCP NEWS2 charts 1 and 2 (2017)"]
+    licence: unverified
+    metrics: {}
+    valid_until: null
+    card: models/tier_a/news2/card.md
+
+  - id: tier_b/arrhythmia
+    tier: B
+    kind: ml
+    version: "0"
+    status: scaffold
+    sha256: null
+    corpus: []
+    licence: unverified
+    metrics: {}
+    valid_until: null
+    card: models/tier_b/arrhythmia/card.md
+
+  - id: tier_c/outcome
+    tier: C
+    kind: ml
+    version: "0"
+    status: scaffold
+    sha256: null
+    corpus: []
+    licence: unverified
+    metrics: {}
+    valid_until: null
+    card: models/tier_c/outcome/card.md

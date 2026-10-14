@@ -77,10 +77,32 @@ Deployed preprocessing (per window), FP32 unless stated. Windows are non-overlap
 
 | Set | Result |
 |---|---|
-| CinC 2017 held-out records (internal; 4,683 windows) | macro-F1 0.683; F1 N 0.847, AF 0.765, Other 0.654, Noisy 0.465; AF AUROC 0.965; AF ECE 0.019 |
-| **AFDB, external** (83,863 windows, 23 records, never trained on) | AF AUROC 0.967 over all windows (0.979 among accepted); at p(AF) >= 0.20, among accepted windows: sensitivity 0.846, specificity 0.972; 5.2% of windows refused as Noisy; per-record burden MAE 0.076, Pearson r 0.940; worst record 05121 |
-| INT8 (ONNX Runtime) vs FP32 | AFDB sensitivity 0.851, specificity 0.971, burden MAE 0.075; CinC macro-F1 0.687 vs 0.683; argmax agreement 98.9% |
+| CinC 2017 held-out records (internal; 4,683 windows) | macro-F1 0.683 (95% CI 0.630-0.726); F1 N 0.847, AF 0.765, Other 0.654, Noisy 0.465; AF AUROC 0.965 (0.938-0.985); AF ECE 0.019 |
+| **AFDB, external** (83,863 windows, 23 records, never trained on) | AF AUROC 0.967 over all windows (0.944-0.984; 0.979 among accepted); at p(AF) >= 0.20, among accepted windows: sensitivity 0.846 (0.745-0.936), specificity 0.972 (0.940-0.991); 5.2% of windows refused as Noisy (3.3-7.5%); per-record burden MAE 0.076 (0.035-0.124), Pearson r 0.940; worst record 05121 |
+| INT8 (ONNX Runtime) vs FP32 | AFDB sensitivity 0.851 (0.751-0.939), specificity 0.971 (0.937-0.990), burden MAE 0.075 (0.035-0.122); CinC macro-F1 0.687 (0.635-0.729); argmax agreement 98.9% |
 | Noise robustness (AFDB + NSTDB test half, stream-filtered protocol as trained), AF AUROC (windows flagged Noisy) | em 24 dB 0.966 (5%), 12 dB 0.964 (6%), 6 dB 0.935 (19%), 0 dB 0.761 (98%), -6 dB 0.601 (100%); ma 6 dB 0.931 (23%), 0 dB 0.767 (89%); bw 6 dB 0.936 (27%), 0 dB 0.796 (97%) |
+
+Intervals are 95% percentile bootstrap CIs resampling whole records (1,000 resamples, seed
+20261014): 23 AFDB records and the CinC test records. With 23 records the AFDB intervals are wide
+and the sensitivity could plausibly be anywhere from 0.75 to 0.94.
+
+## The numpy forward pass (backend: `tier_b/rhythm_cnn.py`) and its parity
+
+The backend runs the model with numpy only (FP32, or INT8 by QDQ fake-quantisation): no ONNX
+Runtime, no MindSpore. Parity is pinned on logits against `golden.npz` (ONNX Runtime outputs on
+ten seeded synthetic windows chosen to drive activations negative, above 6 and past the INT8
+ranges; all four classes occur).
+
+| Pair | Measure | Result |
+|---|---|---|
+| numpy FP32 vs ONNX Runtime FP32 | max abs logit difference | 2.9e-6 on the golden windows (3.8e-6 on 720 real AFDB windows, run once at development, not committed); test bound 2e-5 |
+| numpy INT8 vs ONNX Runtime INT8 | logit difference (output step 0.0730) | 0 on the golden windows; on the 720 real windows 0.5% of logits differ by one step, none by more; test: at most one step and at least 90% exactly equal |
+| torch FP32 vs ONNX Runtime FP32 | max abs logit difference | 4.8e-6 |
+| INT8 vs FP32 | argmax agreement | 98.9% (CinC test windows) |
+| MindSpore Lite FP32 / INT8 | not measured | gated on the user's approval; no conversion claim is made |
+
+CPU time of the whole labeller (band-pass, normalisation, forward) per 10 s window, numpy, one
+thread, Apple M4: about 2.7 ms FP32 and 2.9 ms INT8 (ONNX Runtime alone: 0.45 / 0.14 ms).
 
 ## Limitations (read before quoting any number)
 
@@ -93,7 +115,13 @@ Deployed preprocessing (per window), FP32 unless stated. Windows are non-overlap
 - NSTDB train and test noise halves come from the same three noise records; real patch artefacts
   differ.
 - AF sensitivity depends on the threshold: at argmax it was 0.70.
-- Single lead only; no PVC or ectopy head yet; no beat localisation.
+- Single lead only; the head is four-class (N, AF, Other, Noisy), so there is **no PVC or
+  ectopy metric** and no beat localisation yet.
+- **No RR-irregularity baseline** has been run on AFDB: whether this CNN beats a simple
+  RR-interval AF rule on the same windows is untested, so no claim of added value over one is made.
+- **The M3 exit gate is not met by this model or this card.** Outstanding at least: a PVC
+  metric, an RR-irregularity baseline comparison and MindSpore Lite parity; the Evaluator's gate
+  decides, and nothing here claims it.
 - A window needs 10 s of gap-free signal: a patch with frequent dropouts will refuse most windows
   (coverage is reported, never hidden).
 

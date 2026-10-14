@@ -1,28 +1,13 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import type { ClinicalNote, Measurement, PatientDetail as PatientDetailType, TierBFinding, TierCData } from "../types";
+import type { ClinicalNote, PatientDetail as PatientDetailType, TierBFinding, TierCData } from "../types";
 import { getPatient, getNotes, addNote, deleteNote } from "../api";
-import { MeasurementDisplay } from "../components/MeasurementDisplay";
+import { CurrentVitals, VitalRow } from "../components/CurrentVitals";
 import { TrendChart } from "../components/TrendChart";
 import { Sparkline } from "../components/Sparkline";
 import styles from "./PatientDetail.module.css";
 
 // --- Shared sub-components ---
-
-function VitalRow<T>({
-  label, measurement, unit,
-}: {
-  label: string; measurement: Measurement<T>; unit?: string;
-}) {
-  return (
-    <div className={styles.vitalRow}>
-      <span className={styles.vitalLabel}>{label}</span>
-      <span className={styles.vitalValue}>
-        <MeasurementDisplay measurement={measurement} unit={unit} />
-      </span>
-    </div>
-  );
-}
 
 const DIRECTION_CHAR: Record<string, string> = {
   rising: "\u2191",
@@ -418,12 +403,7 @@ export function PatientDetail() {
           <div className={styles.panel}>
             <p className={styles.panelEyebrow}>Current vitals</p>
             <div className={styles.vitalsGrid}>
-              <VitalRow label="Heart rate" measurement={patient.vitals.heart_rate} unit="bpm" />
-              <VitalRow label="Respiratory rate" measurement={patient.vitals.respiratory_rate} unit="/min" />
-              <VitalRow label="SpO2" measurement={patient.vitals.spo2} unit="%" />
-              <VitalRow label="Temperature" measurement={patient.vitals.temperature} unit={"\u00b0C"} />
-              <VitalRow label="Blood pressure" measurement={patient.vitals.blood_pressure} />
-              <VitalRow label="Consciousness" measurement={patient.vitals.consciousness} />
+              <CurrentVitals vitals={patient.vitals} />
             </div>
           </div>
 

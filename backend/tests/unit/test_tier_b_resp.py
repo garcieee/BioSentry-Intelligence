@@ -665,3 +665,19 @@ def test_at_the_top_of_the_breathing_band_a_run_of_exactly_the_minimum_still_vot
 
     assert rr_from_accel(x, first(500), fs) == pytest.approx(30.0, abs=0.5)
     assert rr_from_accel(x, first(499), fs) is None
+
+
+def test_the_pulse_rate_is_the_median_rate_so_missed_beats_do_not_pull_it_down() -> None:
+    # 13 valid pulses, a third of the intervals are 3 s (two beats missed): the mean of the
+    # rates is 46.7 per minute, 22% under the ECG's 60 and outside the 20% cross-check, so a mean
+    # would refuse the window. The median is 60 and the window is computed. (One missed beat
+    # among nine or more intervals cannot move a mean by 20%; it takes a pattern like this.)
+    fs = 100.0
+    times = [1.5]
+    for gap in [1.0, 1.0, 3.0] * 4:
+        times.append(times[-1] + gap)
+    x = _bumps(times[-1] + 1.3, fs, times)
+    got = pi_window(x, (True,) * len(x), fs, expected_hr_bpm=60.0)
+    assert isinstance(got, PiValue)
+    assert got.n_pulses == 13
+    assert got.pulse_rate_bpm == pytest.approx(60.0, abs=0.5)

@@ -14,34 +14,76 @@ BioSentry answers one question: *of your twenty patients, see this one first.* A
 
 | Tool | Version | Why |
 |------|---------|-----|
-| Node.js | 20+ | Frontend build tooling |
+| Python | 3.11 | Backend (FastAPI), synthetic data generator |
+| Node.js | 20.19+ or 22.12+ | Frontend build tooling |
 | npm | 9+ | Package management |
-| Git | any | Version control |
-| Make | any | Task runner |
+| Git, Make, curl | any | Version control, task runner, API health wait |
 
-### Run the dashboard
+### Run it (API + dashboard)
+
+One command starts the API and the dashboard wired to it. Everything is synthetic data.
 
 ```bash
-git clone <repo-url> && cd Huawei-Innovation-Winners
+git clone <repo-url> && cd BioSentry-Intelligence
 
-# Install dependencies
+# One-time install: a Python 3.11 virtualenv for the backend, then the frontend
+python3.11 -m venv backend/.venv
+make be-install PYTHON=backend/.venv/bin/python
 make web-install
 
-# Start the development server
+# Start the API (127.0.0.1:8000) and the dashboard (localhost:5173) together; Ctrl-C stops both.
+# A port in use is an error, not a silent fallback: choose others with WEB_PORT=5180 API_PORT=8001
+make dev PYTHON=backend/.venv/bin/python
+```
+
+Open [http://localhost:5173](http://localhost:5173). Select a department, pick a clinician profile, and sign in (any passphrase). The ward you see is ranked by the real NEWS2 scorer and the escalation arbiter on the server, scoped to the clinician you signed in as. Admitting a patient, entering labs and adding notes go through the API and are kept in memory (they reset when the API restarts).
+
+**Read this before exposing it anywhere:**
+
+- **Identity is a stub.** The bearer token *is* the clinician id: anyone who can reach the API port can act as any clinician. Real authentication replaces this before any non-synthetic use. The API therefore binds `127.0.0.1` only and prints this notice every time it starts; the launcher refuses a non-loopback `--host` unless `--allow-remote` is given.
+- **Synthetic data only.** Every record carries `synthetic: true`; no real patient data exists in this repository.
+- **One process.** Repositories, the audit log and the snapshot cache live in that process's memory, so the API refuses to start with more than one worker (`--workers`, `WEB_CONCURRENCY`, `UVICORN_WORKERS` or `BIOSENTRY_WORKERS` above 1) and says why. Start it with `python -m biosentry.api` (what `make dev` and `make be-serve` do): it checks before binding a port and exits non-zero.
+
+### Run the dashboard on fixtures only (no API)
+
+```bash
+make web-install
 make web-dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173). Select a department, pick a clinician profile, and sign in.
+With no `VITE_API_URL` the dashboard serves the committed synthetic dataset (`data/synthetic/synthetic.json`) from the browser. The same contract test suite runs against both modes (`make http-contract`).
+
+### Configuration
+
+Read once at start-up, from the environment. A combination the process cannot run safely fails to start.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `BIOSENTRY_DATASET` | `data/synthetic/synthetic.json` | Dataset the in-memory repositories load |
+| `BIOSENTRY_CORS_ORIGINS` | `http://localhost:5173,http://localhost:5174` | Browser origins allowed to call the API |
+| `BIOSENTRY_WARD_TIME` | `dataset` | `dataset` freezes ward time at the dataset's `as_of`; `system` uses the real clock |
+| `BIOSENTRY_CACHE` | `memory` | Per-patient score snapshots: `memory` or `none` (compute on every read) |
+| `BIOSENTRY_CACHE_TTL_S` | `30` | Snapshot lifetime in seconds; refused above 60 (the staleness ceiling) |
+| `BIOSENTRY_WORKERS` | `1` | Declare the number of serving processes when it cannot be detected |
 
 ### Makefile commands
 
 | Command | What it does |
 |---------|-------------|
+| `make dev` | API + dashboard together (see above) |
+| `make be-install` | Install the backend and its dev tools (pinned by `backend/constraints.txt`) |
+| `make be-serve` | API only, on `127.0.0.1:8000` |
+| `make be-check` | Backend lint, format, type check and tests |
+| `make contract-check` | Schemas -> `contracts/openapi.json` -> `frontend/src/types/generated.ts`, fails on drift |
+| `make data` | Regenerate the committed synthetic dataset (a test fails if it is stale) |
+| `make http-contract` | One contract suite against the fixture provider and the running API |
 | `make web-install` | Install frontend dependencies (`npm ci`) |
-| `make web-dev` | Start Vite dev server with hot reload |
+| `make web-dev` | Dashboard only, on fixtures, with hot reload |
 | `make web-build` | Production build (typecheck + bundle) |
 | `make web-typecheck` | Run TypeScript compiler in check mode |
-| `make check` | Run all checks (currently: typecheck) |
+| `make web-lint` / `make web-test` | ESLint / Vitest |
+
+Pass `PYTHON=backend/.venv/bin/python` to any backend target if your virtualenv is not the active interpreter.
 
 ---
 

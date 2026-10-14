@@ -11,7 +11,8 @@ head versus baseline on a hand built pair of records.
 import importlib.util
 import json
 import sys
-from collections.abc import Callable
+import warnings
+from collections.abc import Callable, Sequence
 from itertools import product
 from pathlib import Path
 from types import ModuleType
@@ -101,7 +102,19 @@ def test_the_rate_bounds_are_inclusive_on_the_median_interval(
 
 
 def test_one_long_gap_among_regular_beats_does_not_refuse_by_the_median() -> None:
-    assert isinstance(rb.rr_features(_peaks([200, 200, 200, 600, 200, 200])), dict)
+    # a 12 s pause drags the mean interval to 2.7 s, past the bound; the median stays 0.8 s
+    assert isinstance(rb.rr_features(_peaks([200, 200, 200, 3000, 200, 200])), dict)
+
+
+def test_the_rate_bounds_use_the_sampling_rate_given() -> None:
+    assert isinstance(rb.rr_features(_peaks([700] * 6), fs=500.0), dict)  # 1.4 s at 500 Hz
+    assert rb.rr_features(_peaks([700] * 6), fs=250.0) == "implausible_rate"  # 2.8 s at 250 Hz
+
+
+def test_the_robust_statistic_is_relative_to_the_median_interval() -> None:
+    # intervals 100 200 100 200 100 600 samples: median 150, mean 217; steps 100 100 100 100 500
+    got = rb.rr_features(_peaks([100, 200, 100, 200, 100, 600]))
+    assert got["rmad"] == pytest.approx(100 / 150)
 
 
 def test_a_window_with_a_non_finite_sample_is_refused_never_filled() -> None:
@@ -236,8 +249,9 @@ def test_auroc_extremes_and_undefined_cases() -> None:
     assert rb.auroc(pos, np.array([0.9, 0.8, 0.2, 0.1])) == 1.0
     assert rb.auroc(pos, np.array([0.1, 0.2, 0.8, 0.9])) == 0.0
     assert rb.auroc(pos, np.array([0.5, 0.5, 0.5, 0.5])) == 0.5
-    assert np.isnan(rb.auroc(np.array([True, True]), np.array([0.1, 0.9])))
-    assert np.isnan(rb.auroc(np.array([False, False]), np.array([0.1, 0.9])))
+    with np.errstate(all="raise"):  # undefined must be a decision, not a 0/0 that happened
+        assert np.isnan(rb.auroc(np.array([True, True]), np.array([0.1, 0.9])))
+        assert np.isnan(rb.auroc(np.array([False, False]), np.array([0.1, 0.9])))
     with_refusal = np.array([0.9, -np.inf, 0.2, -np.inf])
     assert rb.auroc(pos, with_refusal) == pytest.approx(_brute_auroc(pos, with_refusal))
 
@@ -286,6 +300,8 @@ def test_matching_is_one_to_one_and_the_tolerance_is_inclusive() -> None:
     reference = np.array([100.0, 200.0, 300.0])
     assert rb.match_beats(reference, np.array([100.0, 200.0, 300.0]), 0.0) == (3, 0, 0)
     assert rb.match_beats(reference, np.array([110.0, 189.0, 310.0]), 10.0) == (2, 1, 1)
+    assert rb.match_beats(reference, np.array([90.0, 210.0, 300.0]), 10.0) == (3, 0, 0)  # +-10 in
+    assert rb.match_beats(reference, np.array([89.0, 211.0, 300.0]), 10.0) == (1, 2, 2)  # +-11 out
     # two detections near one reference: one is a true positive, the other a false positive
     assert rb.match_beats(reference, np.array([100.0, 104.0, 200.0, 300.0]), 10.0) == (3, 1, 0)
     # one detection between two references that are both within tolerance: it serves only one
@@ -360,7 +376,7 @@ def _pair() -> list[object]:
             [
                 [0.05, 0.90, 0.03, 0.02],
                 [0.60, 0.30, 0.05, 0.05],
-                [0.70, 0.10, 0.10, 0.10],
+                [0.60, 0.20, 0.10, 0.10],  # p(AF) sits exactly on the head threshold: AF
                 [0.10, 0.25, 0.15, 0.50],  # argmax Noisy: the head refuses it
             ]
         ),
@@ -389,20 +405,20 @@ def test_head_and_baseline_statistics_on_a_hand_built_pair_of_records() -> None:
         "base_refused": 1 / 7,
         "both_accepted": 5 / 7,
         "head_sensitivity": 1.0,
-        "head_specificity": 2 / 3,
-        "head_ppv": 3 / 4,
+        "head_specificity": 1 / 3,  # the 0.20 and the 0.50 windows are called AF
+        "head_ppv": 3 / 5,
         "base_sensitivity": 1 / 3,
         "base_specificity": 1 / 3,
         "base_ppv": 1 / 3,
         "delta_sensitivity": 2 / 3,
-        "delta_specificity": 1 / 3,
-        "delta_ppv": 3 / 4 - 1 / 3,
-        "head_burden_mae": (1 / 6 + 1 / 3) / 2,
+        "delta_specificity": 0.0,
+        "delta_ppv": 3 / 5 - 1 / 3,
+        "head_burden_mae": (1 / 2 + 1 / 3) / 2,
         "base_burden_mae": (1 / 6 + 0.0) / 2,
-        # head specificity 2/3: the smallest baseline threshold keeping 2 of its 3 negatives below
-        # it is 0.7, which calls the 0.9 and the 0.7 windows AF
-        "base_sensitivity_at_head_specificity": 1 / 3,
-        "base_specificity_at_head_specificity": 2 / 3,
+        # head specificity 1/3: the smallest baseline threshold keeping one of its three negatives
+        # below it is 0.2, which calls every window but the 0.1 one AF
+        "base_sensitivity_at_head_specificity": 1.0,
+        "base_specificity_at_head_specificity": 1 / 3,
     }
     assert set(got) == set(expected)
     for key, value in expected.items():
@@ -450,9 +466,348 @@ def test_the_pinned_selection_matches_the_detector_it_was_made_with() -> None:
         "median_rr_s": [rb.MIN_MEDIAN_RR_S, rb.MAX_MEDIAN_RR_S],
         "refractory_s": rb.REFRACTORY_S,
         "threshold_fraction": rb.THRESHOLD_FRACTION,
+        "typical_peaks": rb.TYPICAL_PEAKS,
+        "integration_s": rb.INTEGRATION_S,
+        "refine_reach_s": rb.REFINE_REACH_S,
+        "band_hz": list(rb.BAND_HZ),
+        "kernel_span_s": rb.KERNEL_SPAN_S,
     }
     validation = sel["validation"]
     assert validation["specificity"] >= rb.MIN_SPECIFICITY
     assert set(validation["auroc_by_feature"]) == set(rb.FEATURES)
     best = max(validation["auroc_by_feature"], key=validation["auroc_by_feature"].get)
     assert sel["feature"] == best
+
+
+def test_the_reference_threshold_is_skipped_when_a_side_has_no_negatives() -> None:
+    # the baseline refused every non-AF window, the head did not: nothing to match its
+    # specificity against, so the row is undefined rather than an error
+    only_af_left = rb.Record(
+        np.array([1, 0]),
+        np.array([[0.1, 0.8, 0.05, 0.05], [0.8, 0.1, 0.05, 0.05]]),
+        np.array([0.9, float("nan")]),
+    )
+    got = rb.baseline_stats([only_af_left], head_threshold=0.2, base_threshold=0.5)
+    assert got["head_specificity"] == 1.0
+    assert np.isnan(got["base_sensitivity_at_head_specificity"])
+    assert np.isnan(got["base_specificity_at_head_specificity"])
+    # the head refused every non-AF window, the baseline did not: the head's specificity is
+    # undefined, so there is no level to match
+    head_has_none = rb.Record(
+        np.array([1, 0]),
+        np.array([[0.1, 0.8, 0.05, 0.05], [0.1, 0.2, 0.1, 0.6]]),
+        np.array([0.9, 0.1]),
+    )
+    got = rb.baseline_stats([head_has_none], head_threshold=0.2, base_threshold=0.5)
+    assert np.isnan(got["head_specificity"])
+    assert np.isnan(got["base_sensitivity_at_head_specificity"])
+
+
+# --- the detector's parts -----------------------------------------------------------------
+
+
+def test_the_detector_wants_one_dimensional_windows() -> None:
+    with pytest.raises(ValueError, match="1-D"):
+        rb.detect_r_peaks(np.zeros((2, 2500)))
+
+
+def test_a_window_no_longer_than_the_filter_span_has_no_beats() -> None:
+    pulse = np.zeros(126)
+    pulse[63] = 1.0
+    assert rb.detect_r_peaks(pulse[:125]).size == 0  # the 0.5 s kernel is 125 samples long
+    assert rb.detect_r_peaks(pulse).size == 1
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        ([0, 1, 2, 1, 0], [2]),
+        ([0, 3, 0, 2, 0], [1, 3]),
+        ([0, 1, 1, 0], [1]),  # the first sample of a flat top, not the second
+        ([0, 1, 2, 3], []),
+        ([1, 1, 1], []),
+        ([1, 2], []),
+    ],
+    ids=["one peak", "two peaks", "flat top", "rising", "flat", "too short"],
+)
+def test_local_maxima_are_strictly_above_the_left_and_not_below_the_right(
+    values: list[int], expected: list[int]
+) -> None:
+    assert rb._local_maxima(np.array(values, dtype=np.float64)).tolist() == expected
+
+
+def test_suppression_keeps_the_best_first_and_drops_anything_within_the_radius() -> None:
+    assert rb._suppress(np.array([10, 15, 16, 30]), 40, 5) == [10, 16, 30]  # 15 is 5 away: dropped
+    assert rb._suppress(np.array([15, 10, 16]), 40, 5) == [15]  # best first decides who stays
+    assert rb._suppress(np.array([2, 7]), 40, 5) == [2]  # the window edge clips the zone only
+    assert rb._suppress(np.array([2, 8]), 40, 5) == [2, 8]
+    assert rb._suppress(np.array([38, 39]), 40, 5) == [38]
+
+
+def _energy(heights: Sequence[float], positions: Sequence[int], size: int = 1000) -> np.ndarray:
+    energy = np.zeros(size)
+    for p, h in zip(positions, heights, strict=True):
+        energy[p] = h
+    return energy
+
+
+_SIX = [100, 250, 400, 550, 700, 850]
+
+
+def test_a_peak_is_kept_from_exactly_a_quarter_of_the_typical_one() -> None:
+    cand = np.array(_SIX)
+    at = rb._gate(_energy([100, 100, 100, 100, 100, 25.0], _SIX), cand, 62)
+    assert at.tolist() == _SIX
+    below = rb._gate(_energy([100, 100, 100, 100, 100, 24.9], _SIX), cand, 62)
+    assert below.tolist() == _SIX[:5]
+
+
+def test_the_typical_peak_is_the_median_of_the_five_largest() -> None:
+    cand = np.array(_SIX)
+    one_huge = rb._gate(_energy([1000, 100, 100, 100, 100, 30], _SIX), cand, 62)
+    assert one_huge.tolist() == _SIX  # a single artefact does not raise the bar
+    three_huge = rb._gate(_energy([1000, 1000, 1000, 100, 100, 30], _SIX), cand, 62)
+    assert sorted(three_huge.tolist()) == _SIX[:3]  # three of five: that is the typical peak
+    few = rb._gate(_energy([100, 10], [100, 400]), np.array([100, 400]), 62)
+    assert few.tolist() == [100]  # the median of two is 55, a quarter 13.75
+    three = rb._gate(_energy([100, 50, 20], [100, 400, 700]), np.array([100, 400, 700]), 62)
+    assert sorted(three.tolist()) == [100, 400, 700]  # median 50, a quarter 12.5
+
+
+def test_the_gate_applies_the_refractory_period_by_height() -> None:
+    cand = np.array([100, 162, 163, 400])
+    energy = _energy([100, 90, 95, 100], [100, 162, 163, 400])
+    kept = rb._gate(energy, cand, 62)
+    assert sorted(kept.tolist()) == [100, 163, 400]  # 162 is 62 away from 100 (dropped), 163 is 63
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # no median of nothing on the way to an empty answer
+        assert rb._gate(np.zeros(100), np.zeros(0, dtype=np.int64), 62).size == 0
+
+
+def test_refinement_moves_to_the_largest_magnitude_within_reach_inclusive() -> None:
+    y = np.zeros(100)
+    y[40], y[45], y[47] = -3.0, 2.0, 5.0
+    assert rb._refine(y, np.array([42]), 5).tolist() == [47]  # k + reach is inside
+    y[48] = 6.0
+    assert rb._refine(y, np.array([42]), 5).tolist() == [47]  # k + reach + 1 is outside
+    assert rb._refine(y, np.array([42]), 3).tolist() == [40]  # the larger magnitude, either sign
+    y2 = np.zeros(100)
+    y2[0] = 4.0
+    assert rb._refine(y2, np.array([2]), 5).tolist() == [0]  # clipped at the window start
+    assert rb._refine(y, np.array([], dtype=np.int64), 5).size == 0
+
+
+def test_windowed_detection_is_the_per_window_detections_shifted_and_drops_the_tail() -> None:
+    x = np.array(synth_ecg(duration_s=30.0, seed=9).samples)[:6200]
+    got = rb.detect_windowed(x)
+    first = rb.detect_r_peaks(x[:2500])
+    second = rb.detect_r_peaks(x[2500:5000]) + 2500
+    assert got.tolist() == first.tolist() + second.tolist()
+    assert got.max() < 5000  # the 1200 samples left over are not a window
+
+
+# --- the windows scored ---------------------------------------------------------------------
+
+
+def test_only_fully_labelled_complete_windows_with_a_clear_majority_are_scored() -> None:
+    w = 100
+    lab = np.zeros(8 * w + 50, dtype=np.int8)
+    x = np.ones(len(lab))
+    lab[0:w] = 1  # all AF
+    lab[w : 2 * w] = 0
+    lab[w : w + 5] = 1  # 95% N
+    lab[2 * w : 3 * w] = 2
+    lab[2 * w : 2 * w + 15] = 0  # 85% other: no clear majority
+    lab[3 * w + 40] = -1  # one unlabelled sample
+    lab[4 * w : 5 * w] = 1  # a missing sample, not a label problem
+    x[4 * w + 7] = np.nan
+    lab[5 * w : 6 * w] = 1
+    lab[5 * w : 5 * w + 10] = 0  # exactly 90% AF
+    lab[6 * w : 7 * w] = 1
+    lab[6 * w : 6 * w + 11] = 0  # 89%
+    lab[7 * w : 8 * w] = 2
+    starts, labels = rb.label_windows(lab, x, window=w)
+    assert starts.tolist() == [0, w, 5 * w, 7 * w]
+    assert labels.tolist() == [1, 0, 1, 2]
+
+
+# --- the choice that is pinned --------------------------------------------------------------
+
+
+def _validation_table(good: str) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    rng = np.random.default_rng(2)
+    y = np.array([1] * 30 + [0] * 60 + [2] * 20 + [3] * 10)
+    table = {k: rng.normal(size=len(y)) for k in rb.FEATURES}
+    signal = np.where(y == 1, 3.0, 0.0) + rng.normal(0.0, 0.5, len(y))
+    signal[y == 3] = 100.0  # noisy windows would drag the threshold up if they counted as negatives
+    table[good] = signal
+    for column in table.values():
+        column[:3] = np.nan  # three AF windows the baseline refused
+    return y, table
+
+
+@pytest.mark.parametrize("good", ["rmad", "cv"])
+def test_the_choice_uses_accepted_af_against_normal_and_other_only(good: str) -> None:
+    y, table = _validation_table(good)
+    got = rb.choose_on_validation(y, table)
+    assert got["feature"] == good
+    assert got["accepted"] == 117
+    # 30 AF less 3 refused; 60 N and 20 Other; the 10 Noisy windows are in neither set
+    assert (got["af_windows"], got["non_af_windows"]) == (27, 80)
+    rest = ((y == 0) | (y == 2)) & ~np.isnan(table[good])
+    scores = table[good]
+    negatives = np.sort(scores[rest])
+    candidates = np.unique(scores[((y == 1) | rest) & ~np.isnan(scores)])
+    expected = next(
+        c for c in candidates if np.searchsorted(negatives, c, side="left") / len(negatives) >= 0.95
+    )
+    assert got["threshold"] == expected
+    called = scores >= expected
+    af = (y == 1) & ~np.isnan(scores)
+    assert got["sensitivity"] == pytest.approx((called & af).sum() / af.sum())
+    assert got["specificity"] == pytest.approx((~called & rest).sum() / rest.sum())
+    assert got["specificity"] >= 0.95
+    assert got["auroc_by_feature"][good] == pytest.approx(
+        rb.auroc(af[af | rest], scores[af | rest])
+    )
+    against_n = af | ((y == 0) & ~np.isnan(scores))
+    against_other = af | ((y == 2) & ~np.isnan(scores))
+    assert got["auroc_selected_af_vs_n"] == pytest.approx(
+        rb.auroc(af[against_n], scores[against_n])
+    )
+    assert got["auroc_selected_af_vs_other"] == pytest.approx(
+        rb.auroc(af[against_other], scores[against_other])
+    )
+
+
+# --- the table of statistics ----------------------------------------------------------------
+
+
+def test_the_statistics_table_has_nan_exactly_where_a_window_was_refused() -> None:
+    good = np.array(synth_ecg(duration_s=10.0, seed=1).samples[:2500])
+    broken = good.copy()
+    broken[10] = np.nan
+    flat = np.zeros(2500)
+    table, reasons = rb._features_table(np.stack([good, broken, flat]))
+    assert reasons == {"incomplete_window": 1, "too_few_beats": 1}
+    for key in rb.FEATURES:
+        assert np.isfinite(table[key][0])
+        assert np.isnan(table[key][1:]).all()
+
+
+def test_only_beats_inside_whole_windows_are_expected() -> None:
+    beats = np.array([5.0, 2499.0, 2500.0, 4999.0, 5000.0, 5001.0, 6000.0])
+    assert rb.beats_covered(beats, 7200).tolist() == [5.0, 2499.0, 2500.0, 4999.0]
+    assert rb.beats_covered(beats, 5000).tolist() == [5.0, 2499.0, 2500.0, 4999.0]
+    assert rb.beats_covered(beats, 4999).tolist() == [5.0, 2499.0]
+    assert rb.beats_covered(beats, 100, window=100).tolist() == [5.0]
+
+
+def test_rhythm_annotations_hold_until_the_next_annotation_of_any_kind() -> None:
+    lab = rb.rhythm_labels([0, 100, 200, 300], ["(N", "(AFIB", "(VT", "(N"], 500)
+    assert (lab[0:100] == 0).all()
+    assert (lab[100:200] == 1).all()
+    assert (lab[200:300] == -1).all()  # an unknown rhythm is not painted over by the one before
+    assert (lab[300:500] == 0).all()
+    assert lab.dtype == np.int8
+
+
+def test_rhythm_labels_map_flutter_to_af_and_junctional_to_other_and_strip_nul() -> None:
+    lab = rb.rhythm_labels([0, 10, 20, 30], ["(AFL\x00", "(J", "(AFIB\x00\x00", None], 40)
+    assert lab.tolist() == [1] * 10 + [2] * 10 + [1] * 10 + [-1] * 10
+    scaled = rb.rhythm_labels([0, 36], ["(N", "(AFIB"], 100, scale=250 / 360)
+    assert (scaled[:25] == 0).all()
+    assert (scaled[25:] == 1).all()
+    assert (scaled[:25] != 1).all()
+
+
+def test_softmax_rows_sum_to_one_and_survive_large_logits() -> None:
+    got = rb._softmax(np.array([[0.0, 0.0, 0.0, 0.0], [1000.0, 0.0, -1000.0, 999.0]]))
+    assert got.sum(axis=1) == pytest.approx([1.0, 1.0])
+    assert got[0].tolist() == pytest.approx([0.25] * 4)
+    assert np.isfinite(got).all()
+    assert got[1, 0] == pytest.approx(1 / (1 + np.exp(-1)))
+    assert got[1, 3] == pytest.approx(np.exp(-1) / (1 + np.exp(-1)))
+
+
+def _gain(kernel: np.ndarray, lo_hz: float, hi_hz: float) -> tuple[float, float]:
+    spectrum = np.abs(np.fft.rfft(kernel, 8192))
+    freq = np.fft.rfftfreq(8192, 1 / FS)
+    band = spectrum[(freq >= lo_hz) & (freq <= hi_hz)]
+    return float(band.min()), float(band.max())
+
+
+def test_the_detector_filter_is_a_5_to_15_hz_band_pass_of_unit_gain() -> None:
+    kernel = rb._band_kernel(float(FS))
+    assert kernel.size == 125  # 0.5 s, odd
+    assert np.allclose(kernel, kernel[::-1])  # linear phase: peaks do not move
+    assert abs(float(kernel.sum())) < 0.01  # no DC
+    assert _gain(kernel, 0.0, 2.0)[1] < 0.02  # baseline wander and respiration
+    lo, hi = _gain(kernel, 8.0, 12.0)
+    assert lo > 0.95
+    assert hi < 1.05  # unit gain in the QRS band
+    assert _gain(kernel, 20.0, 125.0)[1] < 0.01  # EMG, mains and above
+
+
+def test_the_pinned_selection_names_every_detector_constant() -> None:
+    sel = json.loads((TRAINING / "rr_baseline_selection.json").read_text(encoding="utf-8"))
+    assert sel["detector"] == {
+        "fs": 250,
+        "window": 2500,
+        "min_beats": 6,
+        "median_rr_s": [0.3, 2.0],
+        "refractory_s": 0.25,
+        "threshold_fraction": 0.25,
+        "typical_peaks": 5,
+        "integration_s": 0.15,
+        "refine_reach_s": 0.1,
+        "band_hz": [5.0, 15.0],
+        "kernel_span_s": 0.5,
+    }
+    assert rb.MIN_SPECIFICITY == 0.95
+    assert rb.FEATURES == ("nrmssd", "cv", "tpr", "rmad")
+
+
+def test_refined_peaks_that_landed_close_keep_only_the_stronger_one() -> None:
+    y = np.zeros(400)
+    y[100], y[112] = 1.0, 2.0
+    assert rb._merge(y, np.array([100, 112]), 62).tolist() == [112]
+    y[100] = -3.0  # magnitude, not sign
+    assert rb._merge(y, np.array([112, 100]), 62).tolist() == [100]
+    assert rb._merge(y, np.array([100, 200]), 62).tolist() == [100, 200]
+    assert rb._merge(y, np.array([], dtype=np.int64), 62).size == 0
+
+
+def test_the_typical_peak_is_made_of_five_not_three_and_not_more() -> None:
+    cand = np.array(_SIX)
+    # the three largest are huge: median of five is 100 (a quarter: 25, so 30 stays);
+    # median of three would be 1000
+    assert len(rb._gate(_energy([1000, 1000, 100, 100, 100, 30], _SIX), cand, 62)) == 6
+    eight = [100, 250, 400, 550, 700, 850, 1000, 1150]
+    heights = [100, 100, 100, 10, 5, 1, 1, 1]
+    kept = rb._gate(_energy(heights, eight, size=1300), np.array(eight), 62)
+    # the median of the five largest is 100, so the bar is 25; seven would give 10 and let 10 in
+    assert kept.tolist().count(550) == 0
+    assert sorted(kept.tolist()) == [100, 250, 400]
+
+
+def test_a_refused_window_ranks_below_even_a_perfectly_regular_window() -> None:
+    nan = float("nan")
+    rec = rb.Record(
+        np.array([1, 0, 0]),
+        np.array([[0.1, 0.8, 0.05, 0.05], [0.8, 0.1, 0.05, 0.05], [0.7, 0.2, 0.05, 0.05]]),
+        np.array([nan, 0.0, 0.0]),  # the AF window refused; two regular windows score exactly 0
+    )
+    got = rb.baseline_stats([rec], head_threshold=0.2, base_threshold=0.5)
+    assert got["base_auroc_all"] == 0.0  # not 0.5, which a refusal scored as 0 would tie to
+
+
+def test_the_burden_error_is_absolute_when_a_method_underestimates() -> None:
+    rec = rb.Record(
+        np.array([1, 1, 0, 0]),
+        np.array([[0.8, 0.1, 0.05, 0.05]] * 4),  # the head sees no AF at all
+        np.array([0.9, 0.9, 0.1, 0.1]),
+    )
+    got = rb.baseline_stats([rec], head_threshold=0.2, base_threshold=0.5)
+    assert got["head_burden_mae"] == pytest.approx(0.5)
+    assert got["base_burden_mae"] == pytest.approx(0.0)

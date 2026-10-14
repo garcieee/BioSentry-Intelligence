@@ -30,6 +30,14 @@
    2.0
   ],
   "refractory_s": 0.25,
-  "threshold_fraction": 0.25
+  "threshold_fraction": 0.25,
+  "typical_peaks": 5,
+  "integration_s": 0.15,
+  "refine_reach_s": 0.1,
+  "band_hz": [
+   5.0,
+   15.0
+  ],
+  "kernel_span_s": 0.5
  }
 }

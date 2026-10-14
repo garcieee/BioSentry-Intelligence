@@ -40,6 +40,11 @@ MIN_MEDIAN_RR_S = 0.3  # 200 bpm
 MAX_MEDIAN_RR_S = 2.0  # 30 bpm
 REFRACTORY_S = 0.25
 THRESHOLD_FRACTION = 0.25  # of the typical slope-energy peak (median of the five largest)
+INTEGRATION_S = 0.15  # moving-window integration of the squared slope
+REFINE_REACH_S = 0.10  # an energy peak is moved to the largest |signal| this close to it
+BAND_HZ = (5.0, 15.0)  # QRS band-pass of the detector (a windowed-sinc FIR, zero phase)
+KERNEL_SPAN_S = 0.5
+TYPICAL_PEAKS = 5  # the typical peak is the median of this many of the largest
 SEED = 20261014
 N_BOOT = 1000
 MIN_SPECIFICITY = 0.95  # the head's own rule (rhythm_head.py cmd_opt)
@@ -59,7 +64,9 @@ BEAT_SYMBOLS = frozenset("NLRBAaJSVrFejnE/fQ?")
 # --- the detector -------------------------------------------------------------------------------
 
 
-def _band_kernel(fs: float, low_hz: float = 5.0, high_hz: float = 15.0, span_s: float = 0.5) -> np.ndarray:
+def _band_kernel(
+    fs: float, low_hz: float = BAND_HZ[0], high_hz: float = BAND_HZ[1], span_s: float = KERNEL_SPAN_S
+) -> np.ndarray:
     n = int(round(span_s * fs)) | 1
     t = (np.arange(n) - (n - 1) / 2) / fs
 
@@ -81,6 +88,38 @@ def _suppress(order: np.ndarray, n: int, radius: int) -> list[int]:
     return kept
 
 
+def _local_maxima(values: np.ndarray) -> np.ndarray:
+    """Interior samples above their left neighbour and not below their right one: the first
+    sample of a flat top counts, the rest of it does not."""
+    return np.flatnonzero((values[1:-1] > values[:-2]) & (values[1:-1] >= values[2:])) + 1
+
+
+def _gate(energy: np.ndarray, candidates: np.ndarray, radius: int) -> np.ndarray:
+    """Candidates that survive refractory suppression and reach THRESHOLD_FRACTION of the typical
+    peak (the median of the five largest). Empty when there is no candidate."""
+    if candidates.size == 0:
+        return np.zeros(0, dtype=np.int64)
+    best_first = candidates[np.argsort(-energy[candidates], kind="stable")]
+    kept = np.array(_suppress(best_first, energy.size, radius), dtype=np.int64)
+    heights = np.sort(energy[kept])[::-1]
+    reference = float(np.median(heights[:TYPICAL_PEAKS]))
+    return kept[energy[kept] >= THRESHOLD_FRACTION * reference]
+
+
+def _merge(y: np.ndarray, peaks: np.ndarray, radius: int) -> np.ndarray:
+    """Peaks left after refinement, strongest |y| first, none within `radius` of a stronger one."""
+    order = peaks[np.argsort(-np.abs(y[peaks]), kind="stable")]
+    return np.array(sorted(_suppress(order, y.size, radius)), dtype=np.int64)
+
+
+def _refine(y: np.ndarray, peaks: np.ndarray, reach: int) -> np.ndarray:
+    """Move each peak to the largest |y| within `reach` samples of it."""
+    return np.array(
+        [max(0, k - reach) + int(np.argmax(np.abs(y[max(0, k - reach) : k + reach + 1]))) for k in peaks],
+        dtype=np.int64,
+    )
+
+
 def detect_r_peaks(x: Sequence[float] | np.ndarray, fs: float = FS) -> np.ndarray:
     """R-peak sample indices of one window. Plain Pan-Tompkins-style energy detector.
 
@@ -94,30 +133,24 @@ def detect_r_peaks(x: Sequence[float] | np.ndarray, fs: float = FS) -> np.ndarra
         raise ValueError("non-finite sample: refuse the window, never fill it (I1)")
     n = v.size
     kernel = _band_kernel(fs)
-    half = kernel.size // 2
     if n <= kernel.size:
         return np.zeros(0, dtype=np.int64)
-    y = np.convolve(np.pad(v - np.median(v), half, mode="reflect"), kernel, mode="valid")
+    y = np.convolve(np.pad(v - np.median(v), kernel.size // 2, mode="reflect"), kernel, mode="valid")
     slope = np.diff(y, prepend=y[0])
-    width = max(int(round(0.15 * fs)), 1)
+    width = max(int(round(INTEGRATION_S * fs)), 1)
     energy = np.convolve(np.pad(slope * slope, width // 2, mode="edge"), np.ones(width) / width, "valid")[:n]
     radius = int(round(REFRACTORY_S * fs))
-    inner = np.flatnonzero((energy[1:-1] > energy[:-2]) & (energy[1:-1] >= energy[2:])) + 1
-    if inner.size == 0:
-        return np.zeros(0, dtype=np.int64)
-    kept = np.array(_suppress(inner[np.argsort(-energy[inner], kind="stable")], n, radius))
-    heights = np.sort(energy[kept])[::-1]
-    reference = float(np.median(heights[:5]))
-    if reference <= 0.0:
-        return np.zeros(0, dtype=np.int64)
-    kept = kept[energy[kept] >= THRESHOLD_FRACTION * reference]
-    reach = int(round(0.1 * fs))
-    refined = np.array(
-        [max(0, k - reach) + int(np.argmax(np.abs(y[max(0, k - reach) : k + reach + 1]))) for k in kept],
-        dtype=np.int64,
-    )
-    final = _suppress(refined[np.argsort(-np.abs(y[refined]), kind="stable")], n, radius)
-    return np.array(sorted(final), dtype=np.int64)
+    kept = _gate(energy, _local_maxima(energy), radius)
+    return _merge(y, _refine(y, kept, int(round(REFINE_REACH_S * fs))), radius)
+
+
+def detect_windowed(x: np.ndarray, window: int = WINDOW, fs: float = FS) -> np.ndarray:
+    """R peaks of consecutive non-overlapping windows as sample indices into `x`. Windows stay
+    independent, so a beat cut by a window edge can be missed or found in both."""
+    found: list[int] = []
+    for s0 in range(0, len(x) - window + 1, window):
+        found += (detect_r_peaks(x[s0 : s0 + window], fs) + s0).tolist()
+    return np.array(found, dtype=np.int64)
 
 
 # --- RR statistics and the refusal rules --------------------------------------------------------
@@ -238,15 +271,21 @@ def match_beats(reference: np.ndarray, detected: np.ndarray, tolerance: float) -
     i = j = tp = 0
     while i < len(reference) and j < len(detected):
         gap = detected[j] - reference[i]
-        if abs(gap) <= tolerance:
+        if gap < -tolerance:
+            j += 1  # a detection before this reference's reach: a false positive
+        elif gap > tolerance:
+            i += 1  # a reference no detection reached: a miss
+        else:
             tp += 1
             i += 1
             j += 1
-        elif gap < 0:
-            j += 1
-        else:
-            i += 1
     return tp, len(detected) - tp, len(reference) - tp
+
+
+def beats_covered(beats: np.ndarray, n_samples: int, window: int = WINDOW) -> np.ndarray:
+    """Reference beats inside the whole windows of a record (a trailing partial window is not
+    scored, so its beats are not expected)."""
+    return beats[beats < (n_samples // window) * window]
 
 
 class Record(NamedTuple):
@@ -316,6 +355,81 @@ def baseline_stats(
     return out
 
 
+# AFDB rhythm annotations, as the head's evaluation maps them (atrial flutter counts as AF)
+RHYTHM_CLASSES = {"(AFIB": 1, "(AFL": 1, "(N": 0, "(J": 2}
+
+
+def rhythm_labels(
+    samples: Sequence[int] | np.ndarray, notes: Sequence[str | None], n: int, scale: float = 1.0
+) -> np.ndarray:
+    """Per-sample rhythm label (0 N, 1 AF, 2 other, -1 none) painted from rhythm annotations. An
+    annotation holds until the next annotation of any kind; a rhythm that is not in
+    RHYTHM_CLASSES leaves its stretch unlabelled, so a window touching it is dropped."""
+    lab = np.full(n, -1, dtype=np.int8)
+    idx = (np.asarray(samples) * scale).astype(int)
+    for i, note in enumerate([(text or "").strip("\x00") for text in notes]):
+        if note in RHYTHM_CLASSES:
+            end = idx[i + 1] if i + 1 < len(idx) else n
+            lab[idx[i] : end] = RHYTHM_CLASSES[note]
+    return lab
+
+
+def _softmax(logits: np.ndarray) -> np.ndarray:
+    z = logits - logits.max(axis=1, keepdims=True)
+    e = np.exp(z)
+    return np.asarray(e / e.sum(axis=1, keepdims=True))
+
+
+def label_windows(
+    lab: np.ndarray, x: np.ndarray, window: int = WINDOW, share: float = 0.9
+) -> tuple[np.ndarray, np.ndarray]:
+    """Starts and labels of the non-overlapping windows of `x` that can be scored: every sample has
+    a rhythm label (-1 = none), one label covers at least `share` of the window, and no sample is
+    missing. Anything else is dropped, never filled (I1)."""
+    starts: list[int] = []
+    labels: list[int] = []
+    for s0 in range(0, len(x) - window + 1, window):
+        seg = lab[s0 : s0 + window]
+        if (seg < 0).any() or np.isnan(x[s0 : s0 + window]).any():
+            continue
+        values, counts = np.unique(seg, return_counts=True)
+        if counts.max() / window < share:
+            continue
+        starts.append(s0)
+        labels.append(int(values[counts.argmax()]))
+    return np.array(starts, dtype=np.int64), np.array(labels, dtype=np.int64)
+
+
+def choose_on_validation(y: np.ndarray, table: dict[str, np.ndarray]) -> dict[str, Any]:
+    """The pinned choice: the statistic with the best AUROC, and the smallest threshold that keeps
+    specificity >= MIN_SPECIFICITY. Only windows the baseline accepts take part, AF (1) against
+    N (0) and Other (2); a Noisy (3) window is in neither set, as in the head's own rule."""
+    accepted = ~np.isnan(table[FEATURES[0]])
+    af = (y == 1) & accepted
+    rest = ((y == 0) | (y == 2)) & accepted
+    use = af | rest
+    aucs = {k: auroc(af[use], table[k][use]) for k in FEATURES}
+    best = max(FEATURES, key=lambda k: aucs[k])
+    t = threshold_for_specificity(af[use], table[best][use])
+    got = rates(af[use], table[best][use] >= t)
+    versus = {
+        label: auroc(af[m], table[best][m])
+        for label, m in (("n", af | ((y == 0) & accepted)), ("other", af | ((y == 2) & accepted)))
+    }
+    return {
+        "feature": best,
+        "threshold": t,
+        "accepted": int(accepted.sum()),
+        "af_windows": int(af.sum()),
+        "non_af_windows": int(rest.sum()),
+        "auroc_by_feature": aucs,
+        "auroc_selected_af_vs_n": versus["n"],
+        "auroc_selected_af_vs_other": versus["other"],
+        "sensitivity": got["sensitivity"],
+        "specificity": got["specificity"],
+    }
+
+
 # --- commands (data, torch-free; onnxruntime and wfdb are imported where used) ------------------
 
 
@@ -364,12 +478,8 @@ def cmd_check_detector(args: argparse.Namespace) -> None:
     per: dict[str, dict[str, float]] = {}
     for name in DS1:
         x, beats, _ = _mitdb_signal(root, name)
-        det: list[int] = []
-        for s0 in range(0, len(x) - WINDOW + 1, WINDOW):
-            det += (detect_r_peaks(x[s0 : s0 + WINDOW]) + s0).tolist()
-        covered = (len(x) // WINDOW) * WINDOW
-        ref = beats[beats < covered]
-        tp, fp, fn = match_beats(np.sort(ref), np.sort(np.asarray(det)), MATCH_TOL_S * FS)
+        ref = beats_covered(beats, len(x))
+        tp, fp, fn = match_beats(np.sort(ref), np.sort(detect_windowed(x)), MATCH_TOL_S * FS)
         tot += (tp, fp, fn)
         per[name] = {"sensitivity": tp / max(tp + fn, 1), "ppv": tp / max(tp + fp, 1), "beats": float(len(ref))}
     res = {
@@ -392,31 +502,20 @@ def cmd_select(args: argparse.Namespace) -> None:
     val = np.load(pathlib.Path(args.out) / "cinc_val.npz")
     y = val["y"]
     table, reasons = _features_table(val["X"])
-    accepted = ~np.isnan(table[FEATURES[0]])
-    af = (y == 1) & accepted
-    rest = ((y == 0) | (y == 2)) & accepted
-    use = af | rest
-    aucs = {k: auroc(af[use], table[k][use]) for k in FEATURES}
-    best = max(FEATURES, key=lambda k: aucs[k])
-    t = threshold_for_specificity(af[use], table[best][use])
-    got = rates(af[use], table[best][use] >= t)
-    versus = {}
-    for label, other in (("n", y == 0), ("other", y == 2)):
-        m = (af | (other & accepted))
-        versus[label] = auroc(af[m], table[best][m])
+    got = choose_on_validation(y, table)
     sel = {
-        "feature": best,
-        "threshold": t,
+        "feature": got["feature"],
+        "threshold": got["threshold"],
         "rule": f"smallest threshold with specificity >= {MIN_SPECIFICITY} on accepted CinC 2017 validation windows",
         "validation": {
             "windows": int(len(y)),
-            "accepted": int(accepted.sum()),
+            "accepted": got["accepted"],
             "refused_by_reason": reasons,
-            "af_windows": int(af.sum()),
-            "non_af_windows": int(rest.sum()),
-            "auroc_by_feature": aucs,
-            "auroc_selected_af_vs_n": versus["n"],
-            "auroc_selected_af_vs_other": versus["other"],
+            "af_windows": got["af_windows"],
+            "non_af_windows": got["non_af_windows"],
+            "auroc_by_feature": got["auroc_by_feature"],
+            "auroc_selected_af_vs_n": got["auroc_selected_af_vs_n"],
+            "auroc_selected_af_vs_other": got["auroc_selected_af_vs_other"],
             "sensitivity": got["sensitivity"],
             "specificity": got["specificity"],
         },
@@ -427,6 +526,11 @@ def cmd_select(args: argparse.Namespace) -> None:
             "median_rr_s": [MIN_MEDIAN_RR_S, MAX_MEDIAN_RR_S],
             "refractory_s": REFRACTORY_S,
             "threshold_fraction": THRESHOLD_FRACTION,
+            "typical_peaks": TYPICAL_PEAKS,
+            "integration_s": INTEGRATION_S,
+            "refine_reach_s": REFINE_REACH_S,
+            "band_hz": list(BAND_HZ),
+            "kernel_span_s": KERNEL_SPAN_S,
         },
     }
     text = json.dumps(sel, indent=1) + "\n"
@@ -448,25 +552,10 @@ def _afdb_windows(root: pathlib.Path) -> Iterator[tuple[str, np.ndarray, np.ndar
             continue
         x = rh.resample(x, fs)
         ann = wfdb.rdann(str(root / name), "atr")
-        lab = np.full(len(x), -1, np.int8)
-        known = {"(AFIB": 1, "(AFL": 1, "(N": 0, "(J": 2}
-        idx = (np.array(ann.sample) * (FS / fs)).astype(int)
-        for i, note in enumerate([(s or "").strip("\x00") for s in ann.aux_note]):
-            if note in known:
-                end = idx[i + 1] if i + 1 < len(idx) else len(x)
-                lab[idx[i] : end] = known[note]
-        wins, ys = [], []
-        for s0 in range(0, len(x) - WINDOW + 1, WINDOW):
-            seg = lab[s0 : s0 + WINDOW]
-            if (seg < 0).any() or np.isnan(x[s0 : s0 + WINDOW]).any():
-                continue
-            vals, cnt = np.unique(seg, return_counts=True)
-            if cnt.max() / WINDOW < 0.9:
-                continue
-            wins.append(x[s0 : s0 + WINDOW])
-            ys.append(int(vals[cnt.argmax()]))
-        if wins:
-            yield name, np.stack(wins), np.array(ys)
+        lab = rhythm_labels(ann.sample, ann.aux_note, len(x), FS / fs)
+        starts, ys = label_windows(lab, x)
+        if len(starts):
+            yield name, np.stack([x[s : s + WINDOW] for s in starts]), ys
 
 
 def _head_probabilities(raw: np.ndarray, session: Any) -> np.ndarray:
@@ -477,10 +566,7 @@ def _head_probabilities(raw: np.ndarray, session: Any) -> np.ndarray:
 
     x = rh.robust_norm(np.stack([sps.sosfilt(rh._SOS, w).astype(np.float32) for w in raw]))
     out = [session.run(None, {"ecg": x[i : i + 512, None, None, :]})[0] for i in range(0, len(x), 512)]
-    z = np.concatenate(out)
-    z = z - z.max(axis=1, keepdims=True)
-    e = np.exp(z)
-    return e / e.sum(axis=1, keepdims=True)
+    return _softmax(np.concatenate(out))
 
 
 def cmd_score(args: argparse.Namespace) -> None:

@@ -57,7 +57,7 @@ contract-check: contract-test contract
 
 BACKEND := backend
 
-.PHONY: be-install be-lint be-fmt be-test be-check data
+.PHONY: be-install be-lint be-fmt be-test be-check be-serve data
 
 # Direct deps are exact in pyproject.toml; constraints.txt pins the transitive closure.
 be-install:
@@ -81,3 +81,7 @@ be-check: be-lint be-test
 # Regenerate data/synthetic/synthetic.json (py-test fails if the committed file is stale).
 data:
 	$(PYTHON) -m biosentry.sim --out data/synthetic/synthetic.json
+
+# Serve the API on :8000 from the committed synthetic dataset (writes are in memory).
+be-serve:
+	$(PYTHON) -m uvicorn biosentry.api.main:app --port 8000

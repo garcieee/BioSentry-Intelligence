@@ -4,6 +4,7 @@ annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
 ast_serialize==0.13.0
+click==8.5.0
 fastapi==0.143.0
 h11==0.16.0
 httpcore2==2.13.1
@@ -31,3 +32,4 @@ truststore==0.10.5
 types-PyYAML==6.0.12.20260906
 typing-inspection==0.4.4
 typing_extensions==4.16.0
+uvicorn==0.54.0

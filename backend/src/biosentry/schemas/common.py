@@ -139,4 +139,3 @@ class BloodPressurePresent(Contract):
 class BloodPressureMeasurement(Contract):
     data: Annotated[BloodPressurePresent | MeasurementAbsent, Field(discriminator="present")]
     provenance: Provenance
-

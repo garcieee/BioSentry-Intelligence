@@ -28,8 +28,7 @@ GENERATED := $(CONTRACTS)/openapi.json frontend/src/types/generated.ts
 
 .PHONY: contract-install contract-export contract-ts contract contract-test contract-check
 
-contract-install:
-	$(PYTHON) -m pip install -e "backend[dev]"
+contract-install: be-install
 	cd $(CONTRACTS) && npm ci
 
 contract-export:
@@ -50,3 +49,28 @@ contract-check: contract-test contract
 	test -z "$$changed" || { \
 	  echo "contract drift: regenerate with 'make contract' and commit"; \
 	  git --no-pager diff --stat -- $(GENERATED); exit 1; }
+
+# --- Backend (Python 3.11). Locally: make be-check PYTHON=backend/.venv/bin/python ---
+
+BACKEND := backend
+
+.PHONY: be-install be-lint be-fmt be-test be-check
+
+# Direct deps are exact in pyproject.toml; constraints.txt pins the transitive closure.
+be-install:
+	$(PYTHON) -m pip install -c $(BACKEND)/constraints.txt -e "$(BACKEND)[dev]"
+
+be-lint:
+	$(PYTHON) -m ruff check $(BACKEND)
+	$(PYTHON) -m ruff format --check $(BACKEND)
+	$(PYTHON) -m mypy --config-file $(BACKEND)/pyproject.toml $(BACKEND)/src $(BACKEND)/tests
+
+be-fmt:
+	$(PYTHON) -m ruff check --fix $(BACKEND)
+	$(PYTHON) -m ruff format $(BACKEND)
+
+# pytest exits 5 when nothing is collected, which fails this target (an empty suite is a failure).
+be-test:
+	$(PYTHON) -m pytest $(BACKEND)
+
+be-check: be-lint be-test

@@ -9,7 +9,7 @@ from enum import StrEnum
 from pydantic import AwareDatetime
 
 from .base import Contract, Flag, Fraction, NonNegInt, NonNegNum, Num
-from .clinical import LabPanel, VitalTrends, Vitals
+from .clinical import LabPanel, Vitals, VitalTrends
 from .common import ProvenanceSource, Tier
 
 

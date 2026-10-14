@@ -5,9 +5,9 @@ from typing import Any
 
 import pytest
 from pydantic import BaseModel, ValidationError
-from samples import sample
 
 from biosentry.schemas import CONTRACT_MODELS, INPUT_MODELS
+from samples import sample
 
 # Optional-by-design string fields on output models (TS `detail?:` / `pathway?:`).
 OPTIONAL_OUTPUT_FIELDS = {("TierBFinding", "detail"), ("EscalationReason", "pathway")}
@@ -32,7 +32,9 @@ REQUIRED = [
 ]
 
 
-@pytest.mark.parametrize("model,field", REQUIRED, ids=[f"{m.__name__}.{f}" for m, f in REQUIRED])
+@pytest.mark.parametrize(
+    ("model", "field"), REQUIRED, ids=[f"{m.__name__}.{f}" for m, f in REQUIRED]
+)
 def test_omitting_a_required_field_is_a_validation_error(
     model: type[BaseModel], field: str
 ) -> None:

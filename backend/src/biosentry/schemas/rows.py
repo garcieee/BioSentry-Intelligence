@@ -5,7 +5,7 @@ from typing import Annotated
 from pydantic import Field
 
 from .base import Age, Contract, Flag, NonNegNum, Percent
-from .clinical import LabPanel, VitalHistoryFull, VitalTrends, Vitals
+from .clinical import LabPanel, VitalHistoryFull, Vitals, VitalTrends
 from .common import Tier, Trend
 from .tiers import EscalationReason, TierBData, TierCData, TierStatus
 

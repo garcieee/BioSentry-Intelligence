@@ -25,6 +25,7 @@ import type {
   WardResponse,
 } from "../../types";
 import {
+  ApiError,
   deleteRequest,
   fetchJson,
   postJson,
@@ -36,8 +37,15 @@ export const httpProvider: ApiProvider = {
     return fetchJson<WardResponse>("/wards/W4/rows");
   },
 
-  getPatient(id: string): Promise<PatientDetail | null> {
-    return fetchJson<PatientDetail | null>(`/patients/${id}`);
+  async getPatient(id: string): Promise<PatientDetail | null> {
+    // The server answers 404 for a patient that does not exist and for one that is not the
+    // caller's, identically. The page treats both as "not found".
+    try {
+      return await fetchJson<PatientDetail>(`/patients/${id}`);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
   },
 
   getNotes(patientId: string): Promise<ClinicalNote[]> {

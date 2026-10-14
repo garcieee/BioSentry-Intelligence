@@ -26,6 +26,18 @@ models:
     valid_until: null
     card: models/tier_b/arrhythmia/card.md
 
+  - id: tier_b/signal_layer
+    tier: B
+    kind: classical
+    version: m2
+    status: implemented
+    sha256: null
+    corpus: ["no training data: classical signal processing", "tests: in-repo synthetic ECG/PPG/accelerometer generators and the seeded ward generator (CP3)"]
+    licence: unverified
+    metrics: {}
+    valid_until: null
+    card: models/tier_b/signal_layer/card.md
+
   - id: tier_c/outcome
     tier: C
     kind: ml

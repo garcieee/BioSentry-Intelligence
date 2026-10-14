@@ -24,9 +24,11 @@ from biosentry.schemas import (
     ClinicalNote,
     LabPanel,
     NewNote,
+    NurseVitalsInput,
     PartialLabInput,
     PatientDetail,
     PatientSummary,
+    VitalsRecorded,
     WardResponse,
 )
 from biosentry.services.patients import PatientService, RejectedError
@@ -92,11 +94,12 @@ def create_app(settings: Settings | None = None, clock: Clock = utc_now) -> Fast
         "Identity is a stub: the bearer token IS the clinician id. Never expose this server "
         "beyond loopback; real authentication replaces it before any non-synthetic use."
     )
+    wards = WardService(store, audit)
     ctx = Context(
         store=store,
         audit=audit,
-        wards=WardService(store, audit),
-        patients=PatientService(store, audit, ward_clock),
+        wards=wards,
+        patients=PatientService(store, audit, wards, ward_clock),
     )
 
     app = FastAPI(title="BioSentry Intelligence API", version="0.1.0")
@@ -170,6 +173,15 @@ def create_app(settings: Settings | None = None, clock: Clock = utc_now) -> Fast
         if panel is None:
             raise HTTPException(status_code=404, detail=NOT_FOUND)
         return panel
+
+    @app.post("/patients/{patient_id}/vitals", response_model=VitalsRecorded)
+    def record_vitals(
+        patient_id: str, body: NurseVitalsInput, ctx: Ctx, who: Who
+    ) -> VitalsRecorded:
+        recorded = ctx.patients.record_vitals(who, patient_id, body)
+        if recorded is None:
+            raise HTTPException(status_code=404, detail=NOT_FOUND)
+        return recorded
 
     @app.post("/extract/labs", status_code=501)
     def extract_labs(who: Who) -> JSONResponse:

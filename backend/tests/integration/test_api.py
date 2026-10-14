@@ -13,7 +13,14 @@ from biosentry.api.app import Context, create_app
 from biosentry.core.config import DEFAULT_DATASET, Settings
 from biosentry.domain.arbiter import arbitrate, rank_ward
 from biosentry.domain.scoring.tier_a import inputs_from_vitals, score_news2
-from biosentry.schemas import AbstainedRow, PatientDetail, ScoreRow, WardResponse
+from biosentry.schemas import (
+    AbstainedRow,
+    PatientDetail,
+    ScoreRow,
+    VitalsRecorded,
+    WardResponse,
+)
+from biosentry.schemas.common import BloodPressurePresent
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
 REPO = Path(__file__).resolve().parents[3]
@@ -338,10 +345,8 @@ def test_a_ranked_patient_who_loses_an_input_becomes_not_ranked(
 ) -> None:
     # The score is recomputed on every read: remove an input and the patient abstains.
     _, client = app_and_client
-    store = ctx(app_and_client).store
-    record = store.patients["p-002"]
-    assert record.ranked is not None
-    vitals = record.ranked.vitals
+    record = ctx(app_and_client).store.patients["p-002"]
+    vitals = record.state.vitals
     absent = {
         "data": {"present": False, "reason": "not_measured"},
         "provenance": vitals.blood_pressure.provenance.model_dump(),
@@ -349,7 +354,7 @@ def test_a_ranked_patient_who_loses_an_input_becomes_not_ranked(
     broken = vitals.model_copy(
         update={"blood_pressure": type(vitals.blood_pressure).model_validate(absent)}
     )
-    record.ranked = record.ranked.model_copy(update={"vitals": broken})
+    record.state = record.state.model_copy(update={"vitals": broken})
     ward = WardResponse.model_validate(
         client.get("/wards/W4/rows", headers=as_("rn-manalo")).json()
     )
@@ -482,14 +487,14 @@ def test_admission_splits_the_blood_pressure_once(app_and_client: tuple[Any, Tes
     assert response.status_code == 201
     row = AbstainedRow.model_validate(response.json())
     assert row.id == "p-013"
-    assert (row.reason, row.name, row.synthetic) == (
-        "Patch not yet applied",
-        "Dela Cruz, Juan",
-        True,
-    )
+    assert (row.name, row.synthetic) == ("Dela Cruz, Juan", True)
+    # NOT RANKED because every missing input is named by the arbiter, not because of a script.
+    assert row.reason.startswith("No device data")
+    assert "Apply the patch" in row.instruction
     record = ctx(app_and_client).store.patients[row.id]
-    assert record.admitted_bp is not None
-    assert (record.admitted_bp.systolic, record.admitted_bp.diastolic) == (120, 80)
+    stored = record.state.vitals.blood_pressure.data
+    assert isinstance(stored, BloodPressurePresent)
+    assert (stored.value.systolic, stored.value.diastolic) == (120, 80)
     mine = client.get("/wards/W4/rows", headers=as_("rn-delacruz")).json()
     assert row.id in {a["id"] for a in mine["abstained"]}
     other = client.get("/wards/W4/rows", headers=as_("rn-reyes")).json()
@@ -521,6 +526,166 @@ def test_extraction_is_not_implemented_and_says_so(client: TestClient) -> None:
         assert response.status_code == 501
         assert "not implemented" in response.json()["detail"]
     assert client.post("/extract/labs").status_code == 401
+
+
+# --- Nurse-recorded vitals: the way out of NOT RANKED ----------------------------------------
+
+
+def _ward(client: TestClient, who: str) -> WardResponse:
+    return WardResponse.model_validate(client.get("/wards/W4/rows", headers=as_(who)).json())
+
+
+def test_recording_the_missing_blood_pressure_ranks_the_patient_at_once(client: TestClient) -> None:
+    before = _ward(client, "rn-delacruz")
+    assert "p-004" in {a.id for a in before.abstained}
+    assert next(a for a in before.abstained if a.id == "p-004").reason == "Systolic BP missing"
+
+    response = client.post(
+        "/patients/p-004/vitals",
+        headers=as_("rn-delacruz"),
+        json={"systolic": 130, "diastolic": 84},
+    )
+    assert response.status_code == 200
+    recorded = VitalsRecorded.model_validate(response.json())
+    assert recorded.ranked is True
+    assert recorded.score == 0  # HR 88, RR 18, SpO2 96, 36.8 C, A, air, SBP 130
+    assert recorded.rank is not None
+    assert recorded.not_ranked_reason is None
+    # The echo carries what was stored, with nurse provenance.
+    echo = response.json()["blood_pressure"]
+    assert echo["data"] == {"present": True, "value": {"systolic": 130, "diastolic": 84}}
+    assert echo["provenance"]["source"] == "nurse"
+    assert echo["provenance"]["synthetic"] is True
+    assert response.json()["consciousness"] is None  # not recorded, not echoed
+
+    after = _ward(client, "rn-delacruz")
+    assert "p-004" in {r.id for r in after.ranked}
+    assert "p-004" not in {a.id for a in after.abstained}
+    assert next(r for r in after.ranked if r.id == "p-004").rank == recorded.rank
+    assert [r.rank for r in after.ranked] == list(range(1, len(after.ranked) + 1))
+    assert client.get("/patients/p-004", headers=as_("rn-delacruz")).status_code == 200
+
+
+def test_a_recorded_value_re_ranks_through_the_real_arbiter(client: TestClient) -> None:
+    h = as_("rn-manalo")
+    before = next(r for r in _ward(client, "rn-manalo").ranked if r.id == "p-012")
+    assert before.score == 0
+    assert before.escalation_reasons == []
+    response = client.post("/patients/p-012/vitals", headers=h, json={"acvpu": "U"})
+    recorded = VitalsRecorded.model_validate(response.json())
+    assert (recorded.ranked, recorded.score) == (True, 3)  # not Alert scores 3
+    after = next(r for r in _ward(client, "rn-manalo").ranked if r.id == "p-012")
+    assert after.rank < before.rank
+    assert [e.text for e in after.escalation_reasons] == [
+        "Single parameter at 3: level of consciousness"
+    ]
+
+
+def test_a_patient_without_a_patch_stays_not_ranked_whatever_the_nurse_records(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/patients/p-005/vitals",
+        headers=as_("rn-reyes"),
+        json={"systolic": 118, "diastolic": 74, "acvpu": "A", "on_oxygen": False, "spo2_scale": 1},
+    )
+    recorded = VitalsRecorded.model_validate(response.json())
+    assert recorded.ranked is False
+    assert recorded.rank is None
+    assert recorded.score is None
+    assert recorded.not_ranked_reason == "No device data"
+    assert recorded.not_ranked_instruction == "Apply the patch and verify the signal"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"systolic": 130},
+        {"diastolic": 80},
+        {"systolic": 0, "diastolic": 0},
+        {"systolic": 20, "diastolic": 80},
+        {"systolic": 400, "diastolic": 80},
+        {"systolic": 120, "diastolic": 130},
+        {"systolic": 120, "diastolic": 10},
+        {"systolic": 120.5, "diastolic": 80},
+        {"acvpu": "X"},
+        {"spo2_scale": 3},
+        {"spo2_scale": "1"},
+        {"spo2_scale": True},
+        {"on_oxygen": "yes"},
+        {"heart_rate": 70},
+        {"systolic": 120, "diastolic": 80, "temperature": 37.0},
+    ],
+    ids=lambda b: json.dumps(b),
+)
+def test_an_implausible_or_incomplete_record_is_rejected_and_stores_nothing(
+    app_and_client: tuple[Any, TestClient], body: dict[str, Any]
+) -> None:
+    _, client = app_and_client
+    before = _ward(client, "rn-delacruz").model_dump()
+    response = client.post("/patients/p-004/vitals", headers=as_("rn-delacruz"), json=body)
+    assert response.status_code == 422
+    assert _ward(client, "rn-delacruz").model_dump() == before
+    state = ctx(app_and_client).store.patients["p-004"].state
+    assert state.vitals.blood_pressure.data.present is False
+
+
+def test_recording_for_a_patient_that_is_not_yours_is_not_found(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    _, client = app_and_client
+    audit = ctx(app_and_client).audit
+    h = as_("md-aquino")
+    body = {"systolic": 120, "diastolic": 80}
+    refused = client.post("/patients/p-004/vitals", headers=h, json=body)
+    missing = client.post("/patients/p-999/vitals", headers=h, json=body)
+    assert (refused.status_code, refused.json()) == (missing.status_code, missing.json())
+    assert refused.status_code == 404
+    first, second = audit.for_clinician("md-aquino")
+    assert (first.action, first.outcome) == (second.action, second.outcome)
+    assert (first.action, first.outcome) == ("record_vitals", "not_found")
+
+
+def test_recorded_values_never_reach_the_audit_trail(
+    app_and_client: tuple[Any, TestClient],
+) -> None:
+    _, client = app_and_client
+    client.post(
+        "/patients/p-004/vitals",
+        headers=as_("rn-delacruz"),
+        json={"systolic": 131, "diastolic": 83},
+    )
+    client.post(
+        "/patients/p-004/vitals", headers=as_("rn-delacruz"), json={"systolic": 20, "diastolic": 80}
+    )
+    records = ctx(app_and_client).audit.for_clinician("rn-delacruz")
+    assert [(r.action, r.outcome) for r in records] == [
+        ("record_vitals", "ok"),
+        ("record_vitals", "rejected"),
+    ]
+    text = repr(records) + client.get("/audit", headers=as_("rn-delacruz")).text
+    assert "131" not in text
+    assert "83" not in text
+
+
+def test_a_newly_admitted_patient_can_be_recorded_but_stays_not_ranked_without_a_patch(
+    client: TestClient,
+) -> None:
+    form = {
+        "lastName": "Reyes", "firstName": "Ana", "dateOfBirth": "1980-01-01", "age": 45,
+        "sex": "F", "bed": "9Z", "admissionRoute": "direct_admission", "chiefComplaint": "c",
+        "admittingContext": "ctx", "attendingPhysician": "p",
+    }  # fmt: skip
+    admitted = client.post("/patients", headers=as_("rn-delacruz"), json=form).json()
+    response = client.post(
+        f"/patients/{admitted['id']}/vitals",
+        headers=as_("rn-delacruz"),
+        json={"systolic": 120, "diastolic": 80, "acvpu": "A", "on_oxygen": False, "spo2_scale": 1},
+    )
+    recorded = VitalsRecorded.model_validate(response.json())
+    assert recorded.ranked is False
+    assert recorded.not_ranked_reason == "No device data"
 
 
 # --- The routes the frontend calls --------------------------------------------------------

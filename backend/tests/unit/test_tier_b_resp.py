@@ -374,3 +374,14 @@ def test_perfusion_index_ignores_garbage_under_a_short_mask() -> None:
     clean = compute_pi(with_gap(ppg, *gap), PROV)
     assert isinstance(clean[1], Computed)
     assert_mask_invariance(lambda s: compute_pi(s, PROV), ppg, gap)
+
+
+def test_a_usable_run_shorter_than_the_minimum_is_not_searched_for_pulses() -> None:
+    v = synth_vitals(duration_s=60, seed=38)
+    fs = v.ppg_fs
+
+    def only(lo_s: float, hi_s: float) -> tuple[bool, ...]:
+        return tuple(lo_s * fs <= i < hi_s * fs for i in range(len(v.ppg)))
+
+    assert detect_pulses(v.ppg, only(20.0, 24.0), fs).times_s == ()  # 4 s < 5 s
+    assert len(detect_pulses(v.ppg, only(20.0, 26.0), fs).times_s) >= 4  # 6 s

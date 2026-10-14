@@ -91,3 +91,9 @@ export function agoLabel(minutes: number): string {
 export function present(values: readonly (number | null)[]): number[] {
   return values.filter((v): v is number => v !== null);
 }
+
+/** Indexes of the bins that get an axis label: first, middle, last, without repeats. */
+export function labelIndexes(n: number): number[] {
+  if (n <= 0) return [];
+  return [...new Set([0, Math.floor(n / 2), n - 1])];
+}

@@ -2,6 +2,7 @@ import {
   agoLabel,
   areaPath,
   isolatedPoints,
+  labelIndexes,
   linePath,
   present,
   xByIndex,
@@ -74,7 +75,8 @@ export function TrendChart({
   });
 
   // X-axis labels (first, middle, last): how long before the latest bin
-  const xLabels = [0, Math.floor(data.length / 2), data.length - 1].map((i) => ({
+  const xLabels = labelIndexes(data.length).map((i) => ({
+    key: i,
     label: timesUsable ? agoLabel((times[data.length - 1] - times[i]) / 60000) : data[i].time,
     x: xs[i],
   }));
@@ -191,7 +193,7 @@ export function TrendChart({
         {/* X labels */}
         {xLabels.map((l) => (
           <text
-            key={l.label}
+            key={l.key}
             x={l.x}
             y={height - 4}
             textAnchor="middle"

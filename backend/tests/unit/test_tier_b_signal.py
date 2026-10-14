@@ -16,7 +16,7 @@ from biosentry.domain.scoring.tier_b.burden import (
     robust_baseline,
     robust_z,
 )
-from biosentry.domain.scoring.tier_b.ecg import detect_beats
+from biosentry.domain.scoring.tier_b.ecg import Beats, detect_beats
 from biosentry.domain.scoring.tier_b.hrv import HrvValue, compute_hrv, hrv_window, nn_intervals
 from biosentry.domain.signals import SignalInput
 from biosentry.schemas import Provenance
@@ -416,3 +416,168 @@ def test_a_baseline_needs_exactly_the_minimum_valid_minutes() -> None:
 
 def test_an_empty_series_is_refused_as_no_minutes_not_as_low_coverage() -> None:
     assert hr_burden([], []) == NotComputed("no_minutes")
+
+
+# --- edges and ties the detector decides at the exact sample -------------------------------
+
+
+def _spikes(
+    duration_s: float, fs: float, times: list[float], amps: list[float]
+) -> tuple[float, ...]:
+    """A flat trace with a narrow QRS-like spike at each time: exact, noise-free beat times."""
+    t = np.arange(round(duration_s * fs)) / fs
+    x = np.zeros_like(t)
+    for tb, amp in zip(times, amps, strict=True):
+        x += amp * np.exp(-0.5 * ((t - tb) / 0.012) ** 2)
+    return tuple(float(v) for v in x)
+
+
+@pytest.mark.parametrize(("samples_apart", "beats"), [(62, 5), (61, 4)], ids=["62", "61"])
+def test_two_r_peaks_one_refractory_apart_are_two_beats_and_one_sample_closer_are_one(
+    samples_apart: int, beats: int
+) -> None:
+    fs = 250.0  # the refractory is round(0.25 s * fs) = 62 samples
+    x = _spikes(5.0, fs, [0.6, 1.6, 2.6, 3.6, 3.6 + samples_apart / fs], [1.0] * 5)
+    assert len(detect_beats(x, (True,) * len(x), fs).times_s) == beats
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "kept_s"), [(0.6, 1.0, 3.57), (1.0, 0.6, 3.4)], ids=["later", "earlier"]
+)
+def test_two_candidates_inside_the_refractory_keep_the_larger_peak(
+    first: float, second: float, kept_s: float
+) -> None:
+    fs = 250.0
+    x = _spikes(5.0, fs, [0.6, 1.6, 2.6, 3.4, 3.57], [1.0, 1.0, 1.0, first, second])
+    beats = detect_beats(x, (True,) * len(x), fs)
+    assert len(beats.times_s) == 4
+    assert beats.times_s[-1] == pytest.approx(kept_s, abs=0.01)
+
+
+def test_a_beat_exactly_a_window_from_the_run_edge_is_scored_and_one_sample_closer_is_not() -> None:
+    fs = 250.0  # pre-window 0.2 s = 50 samples, post-window 0.4 s = 100 samples
+    at_limit = _spikes(4.6, fs, [0.2, 1.2, 2.2, 3.2, 4.2], [1.0] * 5)
+    got = detect_beats(at_limit, (True,) * len(at_limit), fs)
+    assert got.valid == (True, True, True, True, False)  # the last needs one more sample
+    inside = _spikes(4.6, fs, [0.196, 1.2, 2.2, 3.2, 4.196], [1.0] * 5)
+    got = detect_beats(inside, (True,) * len(inside), fs)
+    assert got.valid == (False, True, True, True, True)  # the first is one sample too close
+
+
+def test_one_pair_of_beats_gives_one_interval() -> None:
+    nn, ectopic, plausible = nn_intervals(Beats((1.0, 2.0), (True, True), (0, 0), (1.0, 1.0)))
+    assert nn.tolist() == [1.0]
+    assert (ectopic, plausible) == (0, 1)
+
+
+def test_an_interval_with_exactly_three_neighbours_is_still_judged_for_ectopy() -> None:
+    beats = Beats((0.0, 1.0, 2.0, 3.0, 3.5), (True,) * 5, (0,) * 5, (1.0,) * 5)
+    nn, ectopic, _ = nn_intervals(beats)
+    assert np.isnan(nn[-1])
+    assert ectopic == 1
+
+
+def test_a_flat_baseline_is_usable_at_exactly_the_minimum_spread() -> None:
+    base = Baseline(median=1.0, mad=1.0, n=100)
+    got = robust_z(2.0, base, min_scale=base.scale)
+    assert got == pytest.approx(1.0 / base.scale)
+
+
+# --- value pins: SDNN and RMSSD against exact interval series --------------------------
+# Beats are noise-free spikes placed on the sample grid, so every NN interval is known exactly.
+# Tolerance (design): 0.01 ms, the detector adds no timing error on this grid.
+
+
+def _from_intervals(
+    intervals_s: list[float], fs: float = 250.0, lead_s: float = 0.6, tail_s: float = 1.0
+) -> tuple[float, ...]:
+    times = [round(t * fs) / fs for t in np.cumsum([lead_s, *intervals_s])]
+    return _spikes(times[-1] + tail_s, fs, times, [1.0] * len(times))
+
+
+def test_sdnn_is_the_sample_standard_deviation_and_rmssd_the_successive_differences() -> None:
+    # differences of +80, -40, +120 and -160 ms repeat, so a root-mean-square and a mean of
+    # absolute values (and n against n - 1) give different numbers
+    intervals = [0.88, 0.96, 0.92, 1.04] * 9  # 36 NN intervals, 34.2 s
+    x = _from_intervals(intervals)
+    got = hrv_window(x, (True,) * len(x), 250.0)
+    assert isinstance(got, HrvValue)
+    assert (got.n_nn, got.n_excluded) == (36, 0)
+    diffs = np.diff(intervals)
+    assert got.rmssd_ms == pytest.approx(float(np.sqrt(np.mean(diffs**2))) * 1000.0, abs=0.01)
+    assert abs(got.rmssd_ms - float(np.mean(np.abs(diffs))) * 1000.0) > 5.0
+    assert got.sdnn_ms == pytest.approx(float(np.std(intervals, ddof=1)) * 1000.0, abs=0.01)
+    assert abs(got.sdnn_ms - float(np.std(intervals)) * 1000.0) > 0.5  # n - 1, not n
+    assert got.mean_hr_bpm == pytest.approx(60.0 / float(np.mean(intervals)), abs=0.01)
+    assert got.nn_coverage == pytest.approx(sum(intervals) / (len(x) / 250.0), abs=1e-6)
+    _assert_finite(got)
+
+
+def test_rmssd_never_differences_across_an_excluded_interval() -> None:
+    # a premature beat and its compensatory pause (0.5 s, 1.4 s) are excluded as ectopic; the
+    # rate steps from about 62 to 57 per minute across them, which is not variability
+    before = [0.952, 0.968] * 9
+    after = [1.048, 1.064] * 9
+    x = _from_intervals([*before, 0.5, 1.4, *after])
+    got = hrv_window(x, (True,) * len(x), 250.0)
+    assert isinstance(got, HrvValue)
+    assert (got.n_nn, got.n_excluded) == (36, 2)
+    assert got.rmssd_ms == pytest.approx(16.0, abs=0.01)  # 34 differences, 16 ms each
+    assert got.sdnn_ms == pytest.approx(float(np.std(before + after, ddof=1)) * 1000.0, abs=0.01)
+    assert got.nn_coverage == pytest.approx(sum(before + after) / (len(x) / 250.0), abs=1e-6)
+    _assert_finite(got)
+
+
+# --- a value is never emitted with a non-finite field (I1) ------------------------------
+
+
+def _assert_finite(value: HrvValue) -> None:
+    for name in ("rmssd_ms", "sdnn_ms", "mean_hr_bpm", "nn_coverage"):
+        assert math.isfinite(getattr(value, name)), f"{name} is not finite"
+
+
+def test_valid_intervals_that_are_never_adjacent_are_refused_not_emitted_as_nan() -> None:
+    # two valid beats, then a wide inverted candidate 0.3 s later (detected, fails the template),
+    # repeating: 44 valid 2.0 s intervals cover 76% of the window, but no valid interval is next
+    # to another, so no successive difference exists and RMSSD would be the mean of nothing
+    fs = 250.0
+    period, beats = 2.6, []
+    for k in range(44):
+        s = 0.6 + period * k
+        beats += [(s, 1.0, 0.012), (s + 2.0, 1.0, 0.012), (s + 2.3, -1.0, 0.04)]
+    duration = 0.6 + period * 44 + 1.0
+    t = np.arange(round(duration * fs)) / fs
+    trace = np.zeros_like(t)
+    for tb, amp, sigma in beats:
+        trace += amp * np.exp(-0.5 * ((t - tb) / sigma) ** 2)
+    x = tuple(float(v) for v in trace)
+    nn, _, _ = nn_intervals(detect_beats(x, (True,) * len(x), fs))
+    finite = np.isfinite(nn)
+    assert finite.sum() == 44  # the isolated valid intervals
+    assert not (finite[:-1] & finite[1:]).any()  # and no two are adjacent
+    assert finite.sum() * 2.0 / duration >= 0.75  # so the coverage rule does not fire first
+    assert hrv_window(x, (True,) * len(x), fs) == NotComputed("insufficient_consecutive_nn")
+
+
+def test_no_hrv_value_is_emitted_with_a_non_finite_field() -> None:
+    rng = np.random.default_rng(7)
+    emitted = 0
+    for seed in range(24):
+        ecg = synth_ecg(
+            duration_s=float(rng.choice([30, 60, 90])),
+            hr_bpm=float(rng.choice([45, 70, 110])),
+            noise_sd_mv=float(rng.choice([0.02, 0.15])),
+            pvc_after_s=tuple(float(v) for v in rng.uniform(3, 25, int(rng.integers(0, 3)))),
+            seed=seed,
+        )
+        n = len(ecg.samples)
+        usable = np.ones(n, dtype=bool)
+        for _ in range(int(rng.integers(0, 4))):
+            lo = int(rng.integers(0, n))
+            usable[lo : lo + int(rng.choice([25, 250, 1500, 4000]))] = False
+        x = [v if ok else float("nan") for v, ok in zip(ecg.samples, usable, strict=True)]
+        got = hrv_window(x, tuple(bool(v) for v in usable), ecg.fs)
+        if isinstance(got, HrvValue):
+            _assert_finite(got)
+            emitted += 1
+    assert emitted >= 5  # the battery does compute values; it is not all refusals

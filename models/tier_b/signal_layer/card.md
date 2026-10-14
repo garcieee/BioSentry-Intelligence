@@ -66,10 +66,13 @@ Nothing is interpolated, resampled or filled; a gap is a gap (I1).
 | PPG pulses | peak threshold / template correlation | 0.35 x typical pulse amplitude / at least 0.7 | design |
 | Perfusion index | valid pulses needed / valid share | 10 / at least 50% | design |
 | Perfusion index | pulse rate vs ECG rate | within 20% | design |
+| Perfusion index | definition | AC = smoothed peak minus the minimum 0.6 s before it; DC = raw mean over 1 s each side; 80 ms moving average; median over valid pulses | design; pinned to 1e-9 relative |
+| Perfusion index | accuracy against the generator's known AC/DC | within 12% (reads 5-10% low on 90 ms pulses; 0.82 of truth on 40 ms pulses) | design tolerance; synthetic signals only |
+| HRV | SDNN and RMSSD against exact interval series | within 0.01 ms; SDNN uses n - 1; RMSSD never differences across an excluded interval | design; synthetic exact series |
 | RR | band | 6-30 breaths/min | plausible adult range |
 | RR | agreement | within 3 breaths/min, at least 2 of 3 estimators | design |
 | RR | spectral prominence (peak / mean band power) | at least 8 | tuned: noise alone median 3.8, max 7.1; 6 gave false votes |
-| RR | valid beats needed / accelerometer minimum run | 8 / 20 s | design; the longest run must reach about 30 s: only an edge gap up to about 2 s keeps the vote in a 32 s window, see Limits |
+| RR | valid beats needed / accelerometer minimum run | 8 / 20 s | design; the longest run must reach about 30 s at 10-25/min (20 s at 30/min): only an edge gap up to about 2 s keeps the vote in a 32 s window, see Limits |
 | RR | channel coverage floor to vote | 50% of the window | design |
 
 ## Evidence
@@ -89,14 +92,15 @@ SciPy or pandas or uses interpolation, resampling or fill functions.
   perfusion index and is not corrected.
 - Respiratory rate from ECG or PPG amplitude is a weak channel by nature; the gate refuses
   more often than it reports.
-- **The accelerometer vote needs a contiguous run of about 30 s.** Its spectral prominence (peak
-  over mean band power) of a clean tone grows with run length, so the gate of 8 is crossed only
-  at about 30 s, whatever the amplitude, and the estimator uses the longest gap-free run. In a
-  32 s window only an edge gap of up to about 2 s keeps the vote (more than about 2 s abstains),
-  and any gap in the middle, however short, silences it: the 20 s minimum run is not the only
-  limit. Consequence: a window with a gap loses its third vote and the 2-of-3 agreement refuses
-  more often (`NotComputed`) than the 20 s rule suggests. A 64 s window tolerates a 6 s gap
-  because a 30 s or longer run survives (tested). Measured on synthetic signals at 15
-  breaths/min; real noise only lowers prominence.
+- **The accelerometer vote needs a contiguous run of about 30 s (rate-dependent).** Its spectral
+  prominence (peak over mean band power) of a clean tone grows with run length, so the gate of 8
+  is crossed only at about 30 s for breathing rates of 10-25 per minute (28-29 s at 8 and 28;
+  measured), whatever the amplitude, and the estimator uses the longest gap-free run. At 30 per
+  minute, on the band edge, 20 s is enough and the 20 s minimum run is what binds. In a 32 s
+  window only an edge gap of up to about 2 s keeps the vote (more than about 2 s abstains), and
+  any gap in the middle, however short, silences it. Consequence: a window with a gap loses its
+  third vote and the 2-of-3 agreement refuses more often (`NotComputed`) than the 20 s rule
+  suggests. A 64 s window tolerates a 6 s gap because a 30 s or longer run survives (tested).
+  Measured on synthetic signals; real noise only lowers prominence.
 - **Freedom to operate not cleared**: respiratory-rate-from-ECG/PPG methods fall under an
   Oxford patent (US11103155B2, to about 2038). Research and competition use only until cleared.

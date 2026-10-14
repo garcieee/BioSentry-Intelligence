@@ -1,11 +1,14 @@
 """M2b: perfusion index and agreement-gated respiratory rate score against known truth."""
 
+from collections.abc import Sequence
+
 import numpy as np
 import pytest
 from no_imputation import assert_mask_invariance, assert_no_imputation, with_gap
 from synth_vitals import SynthVitals, synth_vitals
 
 from biosentry.domain.computed import Computed, NotComputed, Result
+from biosentry.domain.scoring.tier_b.dsp import moving_average
 from biosentry.domain.scoring.tier_b.ppg import PiValue, compute_pi, detect_pulses, pi_window
 from biosentry.domain.scoring.tier_b.respiration import (
     RrValue,
@@ -459,3 +462,222 @@ def test_a_channel_exactly_at_the_coverage_floor_still_votes() -> None:
     assert first.value.estimators == ("ecg", "ppg")
     just_above = rr_windows(ecg, ppg, accel, PROV, min_coverage=0.76)
     assert just_above[0] == NotComputed("insufficient_estimators")
+
+
+def _bumps(
+    duration_s: float,
+    fs: float,
+    times: list[float],
+    extra: Sequence[tuple[float, float, float]] = (),
+    sigma_s: float = 0.09,
+) -> tuple[float, ...]:
+    """DC 1000 plus a Gaussian pulse (AC 12) at each time, and optional (time, amp, sigma) bumps."""
+    t = np.arange(round(duration_s * fs)) / fs
+    x = np.full_like(t, 1000.0)
+    for tb in times:
+        x += 12.0 * np.exp(-0.5 * ((t - tb) / sigma_s) ** 2)
+    for tb, amp, sigma in extra:
+        x += amp * np.exp(-0.5 * ((t - tb) / sigma) ** 2)
+    return tuple(float(v) for v in x)
+
+
+def test_a_pulse_exactly_a_second_from_the_run_edge_is_scored_and_one_sample_closer_is_not() -> (
+    None
+):
+    fs = 100.0  # the foot and DC windows need 1 s (100 samples) on each side
+    at_limit = _bumps(6.0, fs, [1.0, 2.0, 3.0, 4.0, 5.0])
+    got = detect_pulses(at_limit, (True,) * len(at_limit), fs)
+    assert got.valid == (True, True, True, True, False)  # p + 1 s is the run end
+    inside = _bumps(6.0, fs, [0.99, 2.0, 3.0, 4.0, 4.99])
+    got = detect_pulses(inside, (True,) * len(inside), fs)
+    assert got.valid == (False, True, True, True, True)  # the first is one sample too close
+
+
+def test_a_second_peak_inside_the_refractory_is_one_pulse_and_the_taller_one_is_kept() -> None:
+    fs = 100.0
+    beats = [0.8 + k for k in range(12)]
+    smaller = _bumps(14.0, fs, beats, [(b + 0.2, 0.8 * 12.0, 0.04) for b in beats])
+    taller = _bumps(14.0, fs, beats, [(b + 0.2, 1.3 * 12.0, 0.04) for b in beats])
+    first = detect_pulses(smaller, (True,) * len(smaller), fs)
+    assert len(first.times_s) == 12
+    assert first.times_s[3] == pytest.approx(3.8, abs=0.03)
+    second = detect_pulses(taller, (True,) * len(taller), fs)
+    assert len(second.times_s) == 12
+    assert second.times_s[3] == pytest.approx(3.99, abs=0.03)  # the later, taller one
+
+
+def test_only_consecutive_valid_pulses_set_the_pulse_rate() -> None:
+    # a narrow 3x spike after every other beat is detected and judged invalid; the intervals to
+    # and from it (0.45 s, 0.55 s) are not used, so the rate is the beats' own 60 per minute
+    fs = 100.0
+    beats = [0.8 + k for k in range(38)]
+    x = _bumps(40.0, fs, beats, [(b + 0.45, 3 * 12.0, 0.02) for b in beats[::2]])
+    got = pi_window(x, (True,) * len(x), fs)
+    assert isinstance(got, PiValue)
+    assert got.pulse_rate_bpm == pytest.approx(60.0, abs=1.0)
+
+
+def test_exactly_the_minimum_number_of_valid_pulses_is_computed_and_one_fewer_is_not() -> None:
+    fs = 100.0  # ten pulses, each with a second of room on both sides, are all valid
+    ten = _bumps(12.0, fs, [1.5 + k for k in range(10)])
+    nine = _bumps(12.0, fs, [1.5 + k for k in range(9)])
+    assert isinstance(pi_window(ten, (True,) * len(ten), fs), PiValue)
+    assert pi_window(nine, (True,) * len(nine), fs) == NotComputed("too_few_valid_pulses")
+
+
+def test_an_out_of_band_motion_tone_is_not_mistaken_for_breathing() -> None:
+    # 15 breaths/min plus a stronger 60/min vibration: only the 6-30/min band is searched
+    fs = 25.0
+    t = np.arange(round(64 * fs)) / fs
+    x = 0.05 * np.sin(2 * np.pi * (15.0 / 60.0) * t) + 0.3 * np.sin(2 * np.pi * 1.0 * t)
+    got = rr_from_accel(tuple(float(v) for v in x), (True,) * len(t), fs)
+    assert got == pytest.approx(15.0, abs=1.0)
+
+
+def test_a_flat_topped_pulse_is_one_pulse_not_one_per_sample_above_the_floor() -> None:
+    # a clipped pulse stays above the peak floor for longer than the refractory; only its
+    # local maximum is a candidate
+    fs = 100.0
+    wide = np.asarray(_bumps(14.0, fs, [0.8 + k for k in range(12)], sigma_s=0.2))
+    clipped = tuple(float(v) for v in np.minimum(wide, 1000.0 + 5.0))
+    assert len(detect_pulses(clipped, (True,) * len(clipped), fs).times_s) == 12
+
+
+# --- value pins: perfusion index against a PPG of known AC and DC -----------------------
+
+
+def test_perfusion_index_is_within_the_stated_tolerance_of_the_known_ac_over_dc() -> None:
+    # design tolerance: 12% of the generator's truth. The 80 ms smoothing and the pulses' own
+    # energy in the 2 s mean make it read 5-10% low on 90 ms pulses; that bias is documented.
+    for ac in (12.0, 20.0, 30.0):
+        for seed in range(3):
+            v = synth_vitals(duration_s=40, ppg_ac=ac, seed=seed)
+            got = pi_window(v.ppg, (True,) * len(v.ppg), v.ppg_fs)
+            assert isinstance(got, PiValue)
+            assert got.pi_percent == pytest.approx(v.pi_percent, rel=0.12), (ac, seed)
+
+
+def test_each_pulse_reads_ac_from_the_smoothed_peak_and_dc_from_the_raw_two_second_mean() -> None:
+    # slow baseline wander (10 units on a DC of 1000) makes every other window, trace or foot
+    # length give a different number; the definition is pinned to 1e-9 relative
+    v = synth_vitals(duration_s=40, ppg_baseline=0.01, seed=64)
+    fs = v.ppg_fs
+    x = np.asarray(v.ppg)
+    smooth = moving_average(x, round(0.08 * fs))
+    pulses = detect_pulses(v.ppg, (True,) * len(x), fs)
+    checked = 0
+    for k, valid in enumerate(pulses.valid):
+        if not valid:
+            continue
+        p = round(pulses.times_s[k] * fs)
+        foot = smooth[p - round(0.6 * fs) : p].min()  # the foot is the minimum 0.6 s before
+        mean = x[p - round(1.0 * fs) : p + round(1.0 * fs) + 1].mean()  # DC: +/- 1 s, raw
+        assert pulses.ac[k] == pytest.approx(float(smooth[p] - foot), rel=1e-9)
+        assert pulses.dc[k] == pytest.approx(float(mean), rel=1e-9)
+        checked += 1
+    assert checked >= 20
+
+
+def test_pulses_narrower_than_the_smoothing_are_read_low_by_a_known_factor() -> None:
+    # 40 ms pulses lose about 18% of their height to the 80 ms moving average (a 9-sample box
+    # at 100 Hz): the index reads 0.82 of truth, and 1.0 would mean AC was read from raw samples
+    fs = 100.0
+    x = _bumps(40.0, fs, [0.8 + k for k in range(38)], sigma_s=0.04)
+    got = pi_window(x, (True,) * len(x), fs)
+    assert isinstance(got, PiValue)
+    assert got.pi_percent / 1.2 == pytest.approx(0.82, abs=0.04)  # truth: 100 x 12 / 1000
+
+
+def test_the_perfusion_index_is_the_median_so_a_few_loud_valid_pulses_do_not_move_it() -> None:
+    fs = 100.0
+    beats = [0.8 + k for k in range(38)]
+    clean = _bumps(40.0, fs, beats)
+    loud = _bumps(40.0, fs, beats, [(beats[k], 3 * 12.0, 0.09) for k in (8, 17, 26, 33)])
+    base = pi_window(clean, (True,) * len(clean), fs)
+    got = pi_window(loud, (True,) * len(loud), fs)
+    assert isinstance(base, PiValue)
+    assert isinstance(got, PiValue)
+    assert got.n_pulses == base.n_pulses  # the loud pulses are valid: only the median protects
+    assert got.pi_percent == pytest.approx(base.pi_percent, rel=0.03)
+
+
+@pytest.mark.parametrize(("samples_apart", "pulses"), [(30, 11), (29, 10)], ids=["30", "29"])
+def test_two_pulse_peaks_one_refractory_apart_are_two_pulses_and_one_sample_closer_are_one(
+    samples_apart: int, pulses: int
+) -> None:
+    fs = 100.0  # the refractory is round(0.3 s * fs) = 30 samples; narrow pulses stay separate
+    beats = [0.8 + k for k in range(10)]
+    x = _bumps(12.0, fs, [*beats, 4.8 + samples_apart / fs], sigma_s=0.04)
+    assert len(detect_pulses(x, (True,) * len(x), fs).times_s) == pulses
+
+
+def test_alternating_valid_and_invalid_pulses_have_no_rate_and_are_refused_not_emitted_as_nan() -> (
+    None
+):
+    # twelve valid pulses (share exactly 0.5, so the quality gate passes), each followed by a
+    # narrow candidate that fails the template: no two valid pulses are adjacent, so there is no
+    # interval to take a rate from, and a NaN rate would also pass the ECG-rate cross-check
+    fs = 100.0
+    pulses = [0.8 + k for k in range(13)]  # the first sits inside the first second: invalid
+    x = _bumps(pulses[-1] + 1.3, fs, pulses, [(p + 0.45, 36.0, 0.02) for p in pulses[1:-1]])
+    usable = (True,) * len(x)
+    found = detect_pulses(x, usable, fs)
+    assert sum(found.valid) == 12
+    assert sum(found.valid) / len(found.valid) == 0.5
+    assert not any(a and b for a, b in zip(found.valid, found.valid[1:], strict=False))
+    assert pi_window(x, usable, fs) == NotComputed("too_few_valid_pulses")
+    assert pi_window(x, usable, fs, expected_hr_bpm=60.0) == NotComputed("too_few_valid_pulses")
+
+
+def test_no_perfusion_index_is_emitted_with_a_non_finite_field() -> None:
+    rng = np.random.default_rng(11)
+    emitted = 0
+    for seed in range(16):
+        v = synth_vitals(
+            duration_s=float(rng.choice([20, 40])),
+            hr_bpm=float(rng.choice([45, 72, 110])),
+            noise=float(rng.choice([0.5, 3.0])),
+            seed=seed,
+        )
+        n = len(v.ppg)
+        usable = np.ones(n, dtype=bool)
+        for _ in range(int(rng.integers(0, 4))):
+            lo = int(rng.integers(0, n))
+            usable[lo : lo + int(rng.choice([20, 100, 400, 900]))] = False
+        x = [a if ok else float("nan") for a, ok in zip(v.ppg, usable, strict=True)]
+        got = pi_window(x, tuple(bool(u) for u in usable), v.ppg_fs, expected_hr_bpm=72.0)
+        if isinstance(got, PiValue):
+            for name in ("pi_percent", "valid_share", "pulse_rate_bpm"):
+                assert np.isfinite(getattr(got, name)), name
+            emitted += 1
+    assert emitted >= 3
+
+
+def test_at_the_top_of_the_breathing_band_a_run_of_exactly_the_minimum_still_votes() -> None:
+    # 30 breaths/min sits on the band edge, where 20.0 s is enough (the 30 s needed for 10-25
+    # per minute does not apply); 19.96 s is not. This is the one rate where the 20 s binds.
+    fs = 25.0
+    t = np.arange(round(64 * fs)) / fs
+    x = tuple(float(v) for v in 0.1 * np.sin(2 * np.pi * 0.5 * t))
+
+    def first(n: int) -> tuple[bool, ...]:
+        return tuple(i < n for i in range(len(x)))
+
+    assert rr_from_accel(x, first(500), fs) == pytest.approx(30.0, abs=0.5)
+    assert rr_from_accel(x, first(499), fs) is None
+
+
+def test_the_pulse_rate_is_the_median_rate_so_missed_beats_do_not_pull_it_down() -> None:
+    # 13 valid pulses, a third of the intervals are 3 s (two beats missed): the mean of the
+    # rates is 46.7 per minute, 22% under the ECG's 60 and outside the 20% cross-check, so a mean
+    # would refuse the window. The median is 60 and the window is computed. (One missed beat
+    # among nine or more intervals cannot move a mean by 20%; it takes a pattern like this.)
+    fs = 100.0
+    times = [1.5]
+    for gap in [1.0, 1.0, 3.0] * 4:
+        times.append(times[-1] + gap)
+    x = _bumps(times[-1] + 1.3, fs, times)
+    got = pi_window(x, (True,) * len(x), fs, expected_hr_bpm=60.0)
+    assert isinstance(got, PiValue)
+    assert got.n_pulses == 13
+    assert got.pulse_rate_bpm == pytest.approx(60.0, abs=0.5)

@@ -2,9 +2,10 @@
 
 import numpy as np
 import pytest
+from no_imputation import assert_mask_invariance, assert_no_imputation, with_gap
 from synth_vitals import SynthVitals, synth_vitals
 
-from biosentry.domain.computed import Computed, NotComputed
+from biosentry.domain.computed import Computed, NotComputed, Result
 from biosentry.domain.scoring.tier_b.ppg import PiValue, compute_pi, detect_pulses, pi_window
 from biosentry.domain.scoring.tier_b.respiration import (
     RrValue,
@@ -268,3 +269,108 @@ def test_agreement_picks_the_largest_group_within_tolerance() -> None:
     assert agree({"ecg": 14.0, "ppg": 20.0}) == NotComputed("estimators_disagree")
     assert agree({"ecg": 14.0}) == NotComputed("insufficient_estimators")
     assert agree({}) == NotComputed("insufficient_estimators")
+
+
+# --- the shared no-imputation and mask-invariance checks -------------------------------
+# assert_no_imputation also runs assert_mask_invariance: the same gap with NaN, +1e9 and -1e9
+# under the mask, at the given span and shifted by half a window.
+
+
+def _follow(channel: SignalInput, clean: SignalInput, gapped: SignalInput) -> SignalInput:
+    """`channel` with the time spans, and the fill value, that `gapped` masks in `clean`."""
+    samples = list(channel.samples)
+    valid = list(channel.valid)
+    for i in range(len(samples)):
+        j = min(len(clean.samples) - 1, int(i * clean.fs / channel.fs))
+        if clean.valid[j] and not gapped.valid[j]:
+            samples[i] = gapped.samples[j]
+            valid[i] = False
+    return SignalInput(channel.fs, channel.window_s, tuple(samples), tuple(valid))
+
+
+def test_perfusion_index_never_imputes_and_the_mask_alone_decides() -> None:
+    v = synth_vitals(duration_s=128, seed=31)  # four 32 s windows; the middle two are masked
+    ppg = _sig(v.ppg, v.ppg_fs)
+    n = ppg.samples_per_window
+    assert_no_imputation(lambda s: compute_pi(s, PROV), ppg, (n, 3 * n))
+
+
+def test_perfusion_index_with_the_ecg_rate_check_also_obeys_the_mask() -> None:
+    v = synth_vitals(duration_s=128, hr_bpm=72.0, seed=32)
+    ppg = _sig(v.ppg, v.ppg_fs)
+    n = ppg.samples_per_window
+    assert_no_imputation(lambda s: compute_pi(s, PROV, expected_hr_bpm=72.0), ppg, (n, 3 * n))
+
+
+def test_respiratory_rate_never_imputes_and_the_mask_alone_decides() -> None:
+    # the gap is cut from the ECG and followed on the PPG and accelerometer, so no channel
+    # can vote inside it; garbage under the mask must not move any window
+    v = synth_vitals(duration_s=128, rr_bpm=15.0, seed=33)
+    ecg, ppg, accel = _channels(v)
+
+    def process(s: SignalInput) -> tuple[Result[RrValue], ...]:
+        return rr_windows(s, _follow(ppg, ecg, s), _follow(accel, ecg, s), PROV)
+
+    n = ecg.samples_per_window
+    assert_no_imputation(process, ecg, (n, 3 * n))
+
+
+def test_a_channel_that_is_not_masked_keeps_the_window_alive() -> None:
+    # control for the check above: mask only the ECG and the PPG and accelerometer still
+    # agree, so the window is rightly computed; the masked-everywhere run is what is empty
+    v = synth_vitals(duration_s=96, rr_bpm=15.0, seed=34)
+    ecg, ppg, accel = _channels(v)
+    n = ecg.samples_per_window
+    only_ecg = with_gap(ecg, n, 2 * n)
+    (_, middle, _) = rr_windows(only_ecg, ppg, accel, PROV)
+    assert isinstance(middle, Computed)
+    assert middle.value.estimators == ("accel", "ppg")
+    everywhere = rr_windows(
+        only_ecg, _follow(ppg, ecg, only_ecg), _follow(accel, ecg, only_ecg), PROV
+    )
+    assert isinstance(everywhere[1], NotComputed)
+
+
+def test_the_follow_helper_masks_by_time_not_by_index() -> None:
+    v = synth_vitals(duration_s=64, seed=35)
+    ecg, ppg, _ = _channels(v)
+    lo, hi = round(10 * ecg.fs), round(20 * ecg.fs)
+    gapped = with_gap(ecg, lo, hi, fill=1e9)
+    follow = _follow(ppg, ecg, gapped)
+    masked = [i for i, ok in enumerate(follow.valid) if not ok]
+    assert masked[0] == round(10 * ppg.fs)
+    assert masked[-1] == round(20 * ppg.fs) - 1
+    assert all(follow.samples[i] == 1e9 for i in masked)
+    assert all(
+        follow.samples[i] == ppg.samples[i] for i in range(len(ppg.samples)) if i not in masked
+    )
+
+
+def test_respiratory_rate_ignores_garbage_under_a_short_mask() -> None:
+    # 6 s of a 64 s window is masked on every channel and the window is still computed from
+    # what is left; a mask-blind accelerometer would read the 1e9 plateau and answer 6 breaths/min
+    v = synth_vitals(duration_s=192, rr_bpm=15.0, seed=36)
+    ecg = _sig(v.ecg, v.ecg_fs, 64.0)
+    ppg = _sig(v.ppg, v.ppg_fs, 64.0)
+    accel = _sig(v.accel, v.accel_fs, 64.0)
+
+    def process(s: SignalInput) -> tuple[Result[RrValue], ...]:
+        return rr_windows(s, _follow(ppg, ecg, s), _follow(accel, ecg, s), PROV)
+
+    n = ecg.samples_per_window
+    gap = (n + round(10 * ecg.fs), n + round(16 * ecg.fs))
+    clean = process(with_gap(ecg, *gap))
+    assert isinstance(clean[1], Computed)  # the partly masked window still has a rate
+    assert clean[1].value.estimators == ("accel", "ecg", "ppg")
+    assert clean[1].value.breaths_per_min == pytest.approx(15.0, abs=1.0)
+    assert_mask_invariance(process, ecg, gap)
+
+
+def test_perfusion_index_ignores_garbage_under_a_short_mask() -> None:
+    v = synth_vitals(duration_s=96, seed=37)
+    ppg = _sig(v.ppg, v.ppg_fs)
+    n = ppg.samples_per_window
+    gap = (n + round(2 * ppg.fs), n + round(8 * ppg.fs))
+    clean = compute_pi(with_gap(ppg, *gap), PROV)
+    assert isinstance(clean[1], Computed)
+    assert_mask_invariance(lambda s: compute_pi(s, PROV), ppg, gap)

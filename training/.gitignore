@@ -1,0 +1,11 @@
+# Data and weights are never committed (README I5; PhysioNet licences).
+data/
+out/
+.venv/
+*.npz
+*.pt
+*.onnx
+*.zip
+*.dat
+*.hea
+*.atr

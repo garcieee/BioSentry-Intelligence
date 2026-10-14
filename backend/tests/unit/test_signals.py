@@ -1,10 +1,10 @@
 """Windowed signal machinery and the assert_no_imputation helper."""
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import pytest
-from no_imputation import assert_no_imputation, with_gap
+from no_imputation import assert_mask_invariance, assert_no_imputation, with_gap
 
 from biosentry.domain.computed import Computed, NotComputed, Result
 from biosentry.domain.signals import SignalInput, apply_windows
@@ -149,3 +149,70 @@ def test_an_adapter_that_changes_windows_outside_the_gap_is_caught() -> None:
 def test_a_vacuous_check_is_refused() -> None:
     with pytest.raises(AssertionError, match="no whole window"):
         assert_no_imputation(mean_windows, make(), gap=(9, 11))
+
+
+# --- the mask alone decides: NaN and 1e9 in a masked slot must give the same output -------
+
+
+def reads_masked_values(signal: SignalInput) -> tuple[Result[float], ...]:
+    """Ignores the mask it is handed and averages whatever the window holds."""
+    return apply_windows(
+        signal, lambda samples, usable: sum(samples) / len(samples), provenance=PROV
+    )
+
+
+def reads_the_minimum(signal: SignalInput) -> tuple[Result[float], ...]:
+    """Uses `isfinite` as its mask: a trough feature blind to +1e9, which only -1e9 reveals."""
+    return apply_windows(
+        signal, lambda samples, usable: min(x for x in samples if math.isfinite(x)), provenance=PROV
+    )
+
+
+def reads_the_maximum(signal: SignalInput) -> tuple[Result[float], ...]:
+    """The same mistake for a peak feature: blind to -1e9, which only +1e9 reveals."""
+    return apply_windows(
+        signal, lambda samples, usable: max(x for x in samples if math.isfinite(x)), provenance=PROV
+    )
+
+
+def zeroes_what_is_not_finite(signal: SignalInput) -> tuple[Result[float], ...]:
+    """Treats NaN as zero: imputation by default value, invisible while the fill is NaN."""
+
+    def fn(samples: Sequence[float], usable: Sequence[bool]) -> float:
+        values = [x if math.isfinite(x) else 0.0 for x in samples]
+        return sum(values) / len(values)
+
+    return apply_windows(signal, fn, provenance=PROV)
+
+
+def test_with_gap_fills_the_masked_samples_with_the_value_asked_for() -> None:
+    gapped = with_gap(make(), 8, 10, fill=1e9)
+    assert gapped.samples[8:10] == (1e9, 1e9)
+    assert gapped.valid[8:10] == (False, False)
+    assert not any(gapped.usable[8:10])
+    assert math.isnan(with_gap(make(), 8, 10).samples[8])  # NaN stays the default
+
+
+def test_an_adapter_that_uses_the_mask_gives_the_same_output_whatever_it_masks() -> None:
+    assert_mask_invariance(mean_windows, make(), gap=(8, 24))
+    assert_mask_invariance(mean_windows, make(), gap=(6, 22))
+
+
+@pytest.mark.parametrize("gap", [(8, 24), (6, 22)], ids=["aligned", "ragged"])
+@pytest.mark.parametrize(
+    "adapter",
+    [reads_masked_values, zeroes_what_is_not_finite, reads_the_minimum, reads_the_maximum],
+    ids=["reads", "zeroes", "minimum", "maximum"],
+)
+def test_an_adapter_that_looks_under_the_mask_is_caught(
+    adapter: Callable[[SignalInput], Sequence[Result[float]]], gap: tuple[int, int]
+) -> None:
+    with pytest.raises(AssertionError, match="reads values the mask says are not there"):
+        assert_no_imputation(adapter, make(), gap=gap)
+
+
+def test_the_invariance_check_runs_inside_assert_no_imputation_and_alone() -> None:
+    # Everything else in assert_no_imputation passes for an aligned gap (no partial window is in
+    # play): only the invariance check, which shifts the gap, sees this adapter.
+    with pytest.raises(AssertionError, match="mask says are not there"):
+        assert_mask_invariance(reads_masked_values, make(), gap=(8, 24))

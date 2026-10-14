@@ -599,3 +599,13 @@ def test_the_perfusion_index_is_the_median_so_a_few_loud_valid_pulses_do_not_mov
     assert isinstance(got, PiValue)
     assert got.n_pulses == base.n_pulses  # the loud pulses are valid: only the median protects
     assert got.pi_percent == pytest.approx(base.pi_percent, rel=0.03)
+
+
+@pytest.mark.parametrize(("samples_apart", "pulses"), [(30, 11), (29, 10)], ids=["30", "29"])
+def test_two_pulse_peaks_one_refractory_apart_are_two_pulses_and_one_sample_closer_are_one(
+    samples_apart: int, pulses: int
+) -> None:
+    fs = 100.0  # the refractory is round(0.3 s * fs) = 30 samples; narrow pulses stay separate
+    beats = [0.8 + k for k in range(10)]
+    x = _bumps(12.0, fs, [*beats, 4.8 + samples_apart / fs], sigma_s=0.04)
+    assert len(detect_pulses(x, (True,) * len(x), fs).times_s) == pulses

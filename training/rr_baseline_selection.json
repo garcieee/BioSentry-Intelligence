@@ -1,0 +1,35 @@
+{
+ "feature": "rmad",
+ "threshold": 0.26898734177215194,
+ "rule": "smallest threshold with specificity >= 0.95 on accepted CinC 2017 validation windows",
+ "validation": {
+  "windows": 4589,
+  "accepted": 4556,
+  "refused_by_reason": {
+   "too_few_beats": 33
+  },
+  "af_windows": 420,
+  "non_af_windows": 4028,
+  "auroc_by_feature": {
+   "nrmssd": 0.8558962264150943,
+   "cv": 0.840192462287795,
+   "tpr": 0.7920668416323828,
+   "rmad": 0.9179342814583629
+  },
+  "auroc_selected_af_vs_n": 0.9579833261073777,
+  "auroc_selected_af_vs_other": 0.842094280240832,
+  "sensitivity": 0.24285714285714285,
+  "specificity": 0.9500993048659384
+ },
+ "detector": {
+  "fs": 250,
+  "window": 2500,
+  "min_beats": 6,
+  "median_rr_s": [
+   0.3,
+   2.0
+  ],
+  "refractory_s": 0.25,
+  "threshold_fraction": 0.25
+ }
+}

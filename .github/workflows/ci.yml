@@ -151,7 +151,7 @@ jobs:
   ci-gate:
     name: ci-gate
     if: always()
-    needs: [typecheck, build, lint, contract-drift, py-lint, py-test]
+    needs: [typecheck, build, lint, test, contract-drift, py-lint, py-test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

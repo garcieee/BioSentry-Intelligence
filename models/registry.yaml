@@ -17,12 +17,21 @@ models:
   - id: tier_b/arrhythmia
     tier: B
     kind: ml
-    version: "0"
-    status: scaffold
-    sha256: null
-    corpus: []
-    licence: unverified
-    metrics: {}
+    version: 0.1.0-spike
+    status: research          # trained for study; not for ranking; weights for evaluation and development only until the CinC 2017 phrase is cleared (card)
+    sha256: e75cf063113bc87b59306283831f1a304b3cb008c48e72d2b15a4b662cc38378   # models/tier_b/arrhythmia/weights.npz
+    corpus:
+      - "PhysioNet/CinC Challenge 2017 training set, ODC-By 1.0, doi 10.13026/d3hm-sf11 (train, validation, test)"
+      - "MIT-BIH Noise Stress Test Database, ODC-By 1.0, doi 10.13026/C2HS3T (noise augmentation, robustness test)"
+      - "MIT-BIH Atrial Fibrillation Database, ODC-By 1.0, doi 10.13026/C2MW2D (external test only)"
+    licence: https://physionet.org/content/challenge-2017/view-license/1.0.0/
+    metrics:
+      afdb_external_af_auroc: 0.967
+      afdb_external_sensitivity_at_0p20: 0.846
+      afdb_external_specificity_at_0p20: 0.972
+      afdb_external_burden_mae: 0.076
+      cinc_test_macro_f1: 0.683
+      cinc_test_af_auroc: 0.965
     valid_until: null
     card: models/tier_b/arrhythmia/card.md
 

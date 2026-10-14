@@ -8,6 +8,7 @@ from no_imputation import assert_mask_invariance, assert_no_imputation, with_gap
 from synth_vitals import SynthVitals, synth_vitals
 
 from biosentry.domain.computed import Computed, NotComputed, Result
+from biosentry.domain.scoring.tier_b.dsp import moving_average
 from biosentry.domain.scoring.tier_b.ppg import PiValue, compute_pi, detect_pulses, pi_window
 from biosentry.domain.scoring.tier_b.respiration import (
     RrValue,
@@ -540,3 +541,61 @@ def test_a_flat_topped_pulse_is_one_pulse_not_one_per_sample_above_the_floor() -
     wide = np.asarray(_bumps(14.0, fs, [0.8 + k for k in range(12)], sigma_s=0.2))
     clipped = tuple(float(v) for v in np.minimum(wide, 1000.0 + 5.0))
     assert len(detect_pulses(clipped, (True,) * len(clipped), fs).times_s) == 12
+
+
+# --- value pins: perfusion index against a PPG of known AC and DC -----------------------
+
+
+def test_perfusion_index_is_within_the_stated_tolerance_of_the_known_ac_over_dc() -> None:
+    # design tolerance: 12% of the generator's truth. The 80 ms smoothing and the pulses' own
+    # energy in the 2 s mean make it read 5-10% low on 90 ms pulses; that bias is documented.
+    for ac in (12.0, 20.0, 30.0):
+        for seed in range(3):
+            v = synth_vitals(duration_s=40, ppg_ac=ac, seed=seed)
+            got = pi_window(v.ppg, (True,) * len(v.ppg), v.ppg_fs)
+            assert isinstance(got, PiValue)
+            assert got.pi_percent == pytest.approx(v.pi_percent, rel=0.12), (ac, seed)
+
+
+def test_each_pulse_reads_ac_from_the_smoothed_peak_and_dc_from_the_raw_two_second_mean() -> None:
+    # slow baseline wander (10 units on a DC of 1000) makes every other window, trace or foot
+    # length give a different number; the definition is pinned to 1e-9 relative
+    v = synth_vitals(duration_s=40, ppg_baseline=0.01, seed=64)
+    fs = v.ppg_fs
+    x = np.asarray(v.ppg)
+    smooth = moving_average(x, round(0.08 * fs))
+    pulses = detect_pulses(v.ppg, (True,) * len(x), fs)
+    checked = 0
+    for k, valid in enumerate(pulses.valid):
+        if not valid:
+            continue
+        p = round(pulses.times_s[k] * fs)
+        foot = smooth[p - round(0.6 * fs) : p].min()  # the foot is the minimum 0.6 s before
+        mean = x[p - round(1.0 * fs) : p + round(1.0 * fs) + 1].mean()  # DC: +/- 1 s, raw
+        assert pulses.ac[k] == pytest.approx(float(smooth[p] - foot), rel=1e-9)
+        assert pulses.dc[k] == pytest.approx(float(mean), rel=1e-9)
+        checked += 1
+    assert checked >= 20
+
+
+def test_pulses_narrower_than_the_smoothing_are_read_low_by_a_known_factor() -> None:
+    # 40 ms pulses lose about 18% of their height to the 80 ms moving average (a 9-sample box
+    # at 100 Hz): the index reads 0.82 of truth, and 1.0 would mean AC was read from raw samples
+    fs = 100.0
+    x = _bumps(40.0, fs, [0.8 + k for k in range(38)], sigma_s=0.04)
+    got = pi_window(x, (True,) * len(x), fs)
+    assert isinstance(got, PiValue)
+    assert got.pi_percent / 1.2 == pytest.approx(0.82, abs=0.04)  # truth: 100 x 12 / 1000
+
+
+def test_the_perfusion_index_is_the_median_so_a_few_loud_valid_pulses_do_not_move_it() -> None:
+    fs = 100.0
+    beats = [0.8 + k for k in range(38)]
+    clean = _bumps(40.0, fs, beats)
+    loud = _bumps(40.0, fs, beats, [(beats[k], 3 * 12.0, 0.09) for k in (8, 17, 26, 33)])
+    base = pi_window(clean, (True,) * len(clean), fs)
+    got = pi_window(loud, (True,) * len(loud), fs)
+    assert isinstance(base, PiValue)
+    assert isinstance(got, PiValue)
+    assert got.n_pulses == base.n_pulses  # the loud pulses are valid: only the median protects
+    assert got.pi_percent == pytest.approx(base.pi_percent, rel=0.03)

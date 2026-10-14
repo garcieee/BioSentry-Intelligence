@@ -481,3 +481,46 @@ def test_a_flat_baseline_is_usable_at_exactly_the_minimum_spread() -> None:
     base = Baseline(median=1.0, mad=1.0, n=100)
     got = robust_z(2.0, base, min_scale=base.scale)
     assert got == pytest.approx(1.0 / base.scale)
+
+
+# --- value pins: SDNN and RMSSD against exact interval series --------------------------
+# Beats are noise-free spikes placed on the sample grid, so every NN interval is known exactly.
+# Tolerance (design): 0.01 ms, the detector adds no timing error on this grid.
+
+
+def _from_intervals(
+    intervals_s: list[float], fs: float = 250.0, lead_s: float = 0.6, tail_s: float = 1.0
+) -> tuple[float, ...]:
+    times = [round(t * fs) / fs for t in np.cumsum([lead_s, *intervals_s])]
+    return _spikes(times[-1] + tail_s, fs, times, [1.0] * len(times))
+
+
+def test_sdnn_is_the_sample_standard_deviation_and_rmssd_the_successive_differences() -> None:
+    # differences of +80, -40, +120 and -160 ms repeat, so a root-mean-square and a mean of
+    # absolute values (and n against n - 1) give different numbers
+    intervals = [0.88, 0.96, 0.92, 1.04] * 9  # 36 NN intervals, 34.2 s
+    x = _from_intervals(intervals)
+    got = hrv_window(x, (True,) * len(x), 250.0)
+    assert isinstance(got, HrvValue)
+    assert (got.n_nn, got.n_excluded) == (36, 0)
+    diffs = np.diff(intervals)
+    assert got.rmssd_ms == pytest.approx(float(np.sqrt(np.mean(diffs**2))) * 1000.0, abs=0.01)
+    assert abs(got.rmssd_ms - float(np.mean(np.abs(diffs))) * 1000.0) > 5.0
+    assert got.sdnn_ms == pytest.approx(float(np.std(intervals, ddof=1)) * 1000.0, abs=0.01)
+    assert abs(got.sdnn_ms - float(np.std(intervals)) * 1000.0) > 0.5  # n - 1, not n
+    assert got.mean_hr_bpm == pytest.approx(60.0 / float(np.mean(intervals)), abs=0.01)
+    assert got.nn_coverage == pytest.approx(sum(intervals) / (len(x) / 250.0), abs=1e-6)
+
+
+def test_rmssd_never_differences_across_an_excluded_interval() -> None:
+    # a premature beat and its compensatory pause (0.5 s, 1.4 s) are excluded as ectopic; the
+    # rate steps from about 62 to 57 per minute across them, which is not variability
+    before = [0.952, 0.968] * 9
+    after = [1.048, 1.064] * 9
+    x = _from_intervals([*before, 0.5, 1.4, *after])
+    got = hrv_window(x, (True,) * len(x), 250.0)
+    assert isinstance(got, HrvValue)
+    assert (got.n_nn, got.n_excluded) == (36, 2)
+    assert got.rmssd_ms == pytest.approx(16.0, abs=0.01)  # 34 differences, 16 ms each
+    assert got.sdnn_ms == pytest.approx(float(np.std(before + after, ddof=1)) * 1000.0, abs=0.01)
+    assert got.nn_coverage == pytest.approx(sum(before + after) / (len(x) / 250.0), abs=1e-6)

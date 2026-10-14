@@ -66,6 +66,9 @@ Nothing is interpolated, resampled or filled; a gap is a gap (I1).
 | PPG pulses | peak threshold / template correlation | 0.35 x typical pulse amplitude / at least 0.7 | design |
 | Perfusion index | valid pulses needed / valid share | 10 / at least 50% | design |
 | Perfusion index | pulse rate vs ECG rate | within 20% | design |
+| Perfusion index | definition | AC = smoothed peak minus the minimum 0.6 s before it; DC = raw mean over 1 s each side; 80 ms moving average; median over valid pulses | design; pinned to 1e-9 relative |
+| Perfusion index | accuracy against the generator's known AC/DC | within 12% (reads 5-10% low on 90 ms pulses; 0.82 of truth on 40 ms pulses) | design tolerance; synthetic signals only |
+| HRV | SDNN and RMSSD against exact interval series | within 0.01 ms; SDNN uses n - 1; RMSSD never differences across an excluded interval | design; synthetic exact series |
 | RR | band | 6-30 breaths/min | plausible adult range |
 | RR | agreement | within 3 breaths/min, at least 2 of 3 estimators | design |
 | RR | spectral prominence (peak / mean band power) | at least 8 | tuned: noise alone median 3.8, max 7.1; 6 gave false votes |

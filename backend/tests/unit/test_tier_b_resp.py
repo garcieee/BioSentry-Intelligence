@@ -681,3 +681,55 @@ def test_the_pulse_rate_is_the_median_rate_so_missed_beats_do_not_pull_it_down()
     assert isinstance(got, PiValue)
     assert got.n_pulses == 13
     assert got.pulse_rate_bpm == pytest.approx(60.0, abs=0.5)
+
+
+@pytest.mark.parametrize(
+    "estimates",
+    [
+        {"ecg": 10.0, "ppg": 12.0, "accel": 14.9},  # 10-12 agree and 12-14.9 agree, 10-14.9 not
+        {"accel": 10.0, "ecg": 12.0, "ppg": 14.9},  # the same, whichever channel holds which
+        {"ecg": 10.0, "ppg": 13.0, "accel": 16.0},  # both pairs exactly at the tolerance
+        {"ecg": 10.0, "ppg": 11.0, "accel": 12.5, "extra": 13.5},  # two overlapping triples
+        {"ecg": 10.0, "ppg": 11.0, "accel": 20.0, "extra": 21.0},  # two separate pairs
+    ],
+    ids=["overlapping", "reordered", "at-tolerance", "overlapping-triples", "separate-pairs"],
+)
+def test_two_different_agreeing_groups_are_refused_as_ambiguous(
+    estimates: dict[str, float],
+) -> None:
+    assert agree(estimates) == NotComputed("estimators_ambiguous")
+
+
+@pytest.mark.parametrize(
+    ("estimates", "voters", "rate"),
+    [
+        ({"ecg": 10.0, "ppg": 12.0, "accel": 15.1}, ("ecg", "ppg"), 11.0),  # 12-15.1 is 3.1 apart
+        ({"ecg": 10.0, "ppg": 11.0, "accel": 12.9}, ("accel", "ecg", "ppg"), 11.3),  # all three
+        ({"ecg": 10.0, "ppg": 10.0, "accel": 10.0}, ("accel", "ecg", "ppg"), 10.0),  # equal values
+        ({"ecg": 12.0, "ppg": 12.0, "accel": 20.0}, ("ecg", "ppg"), 12.0),  # one pair
+    ],
+    ids=["one-pair-and-a-near-miss", "all-three", "all-equal", "one-pair"],
+)
+def test_a_single_largest_group_is_still_reported(
+    estimates: dict[str, float], voters: tuple[str, ...], rate: float
+) -> None:
+    got = agree(estimates)
+    assert isinstance(got, RrValue)
+    assert got.estimators == voters
+    assert got.breaths_per_min == pytest.approx(rate, abs=0.05)
+
+
+def test_overlapping_channel_rates_refuse_the_window_and_are_not_averaged() -> None:
+    # breathing at 10, 12.5 and 15 per minute on the three channels: ecg-ppg agree and
+    # ppg-accel agree (2.5 apart each), ecg-accel do not: no single answer exists
+    v = synth_vitals(
+        duration_s=WINDOW_S,
+        rr_bpm=12.5,
+        ecg_rr_bpm=10.0,
+        ppg_rr_bpm=12.5,
+        accel_rr_bpm=15.0,
+        seed=71,
+    )
+    ecg, ppg, accel = _channels(v)
+    (got,) = rr_windows(ecg, ppg, accel, PROV)
+    assert got == NotComputed("estimators_ambiguous")

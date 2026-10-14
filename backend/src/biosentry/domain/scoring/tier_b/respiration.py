@@ -2,9 +2,10 @@
 
 Three independent estimators each propose a rate for a window: the amplitude of the ECG R peaks,
 the amplitude of the PPG pulses, and the chest accelerometer. A rate is reported only when at
-least two of them agree within a tolerance; otherwise the window is `NotComputed` with the
-reason. The beat-based estimators work on irregularly spaced samples with a Lomb-Scargle
-periodogram, so no resampling or interpolation ever happens (I1).
+least two of them agree within a tolerance and there is only one such group; otherwise the
+window is `NotComputed` with the reason (two different agreeing pairs are ambiguous: choosing
+one would be a guess). The beat-based estimators work on irregularly spaced samples with a
+Lomb-Scargle periodogram, so no resampling or interpolation ever happens (I1).
 
 Freedom to operate: respiratory-rate-from-ECG/PPG methods are covered by an Oxford patent
 (US11103155B2); this implementation has not been cleared against it.
@@ -124,24 +125,29 @@ def rr_from_accel(samples: Sequence[float], usable: Sequence[bool], fs: float) -
 def agree(
     estimates: Mapping[str, float], tolerance: float = AGREEMENT_BPM
 ) -> RrValue | NotComputed:
-    """The largest group of estimators that all lie within `tolerance` of one another."""
+    """The one largest group of estimators that all lie within `tolerance` of one another.
+
+    Two different largest groups (10, 12 and 14.9 breaths/min with a tolerance of 3: 10 and 12
+    agree, 12 and 14.9 agree, 10 and 14.9 do not) are ambiguous and refused: any choice between
+    them would be a guess, and we never guess (I1).
+    """
     if len(estimates) < 2:
         return NotComputed("insufficient_estimators")
-    best: tuple[str, ...] = ()
     names = sorted(estimates, key=lambda n: estimates[n])
-    for i, first in enumerate(names):
-        group = [first]
-        for other in names[i + 1 :]:
-            if estimates[other] - estimates[first] <= tolerance:
-                group.append(other)
-        if len(group) > len(best):
-            best = tuple(group)
-    if len(best) < 2:
+    groups = [
+        tuple(n for n in names[i:] if estimates[n] - estimates[first] <= tolerance)
+        for i, first in enumerate(names)
+    ]
+    size = max(len(group) for group in groups)
+    if size < 2:
         return NotComputed("estimators_disagree")
-    rates = [estimates[n] for n in best]
+    largest = [group for group in groups if len(group) == size]
+    if len(largest) > 1:
+        return NotComputed("estimators_ambiguous")
+    rates = [estimates[n] for n in largest[0]]
     return RrValue(
         breaths_per_min=float(np.mean(rates)),
-        estimators=tuple(sorted(best)),
+        estimators=tuple(sorted(largest[0])),
         spread_bpm=float(max(rates) - min(rates)),
         n_available=len(estimates),
     )
@@ -158,8 +164,9 @@ def rr_windows(
     """Agreement-gated respiratory rate per complete window.
 
     All channels share `window_s` and a start time. A channel whose window has less than
-    `min_coverage` valid signal simply does not vote; fewer than two voters, or no two that
-    agree, refuses the window. The window's coverage is that of the least-covered voter.
+    `min_coverage` valid signal simply does not vote; fewer than two voters, no two that
+    agree, or two different pairs that agree (ambiguous), refuses the window. The window's
+    coverage is that of the least-covered voter.
     """
     channels: list[tuple[str, SignalInput]] = [("ecg", ecg)]
     if ppg is not None:

@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import type { ScoreRow } from "../types";
+import { formatBloodPressure } from "./format";
 import { MeasurementDisplay } from "./MeasurementDisplay";
 import { Sparkline } from "./Sparkline";
 import styles from "./WardRow.module.css";
@@ -77,7 +78,7 @@ export function WardRow({ row }: Props) {
             <span className={styles.nurseLabel}>BP</span>
             <MeasurementDisplay
               measurement={row.vitals.blood_pressure}
-              format={(bp) => `${bp.systolic}/${bp.diastolic}`}
+              format={formatBloodPressure}
             />
           </div>
           <div className={styles.nursePair}>
